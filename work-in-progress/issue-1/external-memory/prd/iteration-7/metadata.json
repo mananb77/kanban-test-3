@@ -1,0 +1,27 @@
+{
+  "iteration": 7,
+  "role": "prd-generator-ai",
+  "status": "completed",
+  "workflow_mode": "new_feature_or_bug_fix",
+  "timestamp": "2026-04-20T09:15:00.000Z",
+  "prd_name": "Build a Full-Stack Quick Poll App",
+  "design_mode": "NEW_FEATURE_OR_BUG_FIX",
+  "depth_mode": "detailed",
+  "scores": {
+    "coverage_score": 90,
+    "answer_quality_score": null,
+    "confidence_score": 88,
+    "quality_score": 92
+  },
+  "word_count": 2850,
+  "sections_count": 14,
+  "assumptions_count": 6,
+  "open_questions_count": 5,
+  "input_documents": [
+    "/persistent/git-workspaces/mananb77/kanban-test-3/issue-1/repos/mananb77/kanban-test-3/mananb77/kanban-test-3/issues/issue-1.json"
+  ],
+  "files_created": [
+    "docs/requirements/PRD_DIFF.md"
+  ],
+  "commit_hash": ""
+}
