@@ -1,0 +1,9 @@
+node_modules/
+client/node_modules/
+server/node_modules/
+client/dist/
+server/db/polls.db
+server/db/polls.db-wal
+server/db/polls.db-shm
+.DS_Store
+*.log
