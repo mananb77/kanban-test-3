@@ -1,0 +1,93 @@
+{
+  "metadata": {
+    "downloaded_at": "2026-04-20T09:09:33.369Z",
+    "owner": "mananb77",
+    "repository": "kanban-test-3",
+    "issue_number": "1",
+    "output_base_path": "/persistent/git-workspaces/mananb77/kanban-test-3/issue-1/repos/mananb77/kanban-test-3",
+    "save_location": "/persistent/git-workspaces/mananb77/kanban-test-3/issue-1/repos/mananb77/kanban-test-3/mananb77/kanban-test-3/issues",
+    "issue_file_path": "/persistent/git-workspaces/mananb77/kanban-test-3/issue-1/repos/mananb77/kanban-test-3/mananb77/kanban-test-3/issues/issue-1.json",
+    "max_comments": 1,
+    "total_comments": 1,
+    "comments_included": 1
+  },
+  "issue": {
+    "url": "https://api.github.com/repos/mananb77/kanban-test-3/issues/1",
+    "repository_url": "https://api.github.com/repos/mananb77/kanban-test-3",
+    "labels_url": "https://api.github.com/repos/mananb77/kanban-test-3/issues/1/labels{/name}",
+    "comments_url": "https://api.github.com/repos/mananb77/kanban-test-3/issues/1/comments",
+    "events_url": "https://api.github.com/repos/mananb77/kanban-test-3/issues/1/events",
+    "html_url": "https://github.com/mananb77/kanban-test-3/issues/1",
+    "id": 4292761254,
+    "node_id": "I_kwDOSHONqc7_3lam",
+    "number": 1,
+    "title": "Build a Full-Stack Quick Poll App",
+    "user": {
+      "login": "mananb77",
+      "id": 55253859,
+      "node_id": "MDQ6VXNlcjU1MjUzODU5",
+      "avatar_url": "https://avatars.githubusercontent.com/u/55253859?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/mananb77",
+      "html_url": "https://github.com/mananb77",
+      "followers_url": "https://api.github.com/users/mananb77/followers",
+      "following_url": "https://api.github.com/users/mananb77/following{/other_user}",
+      "gists_url": "https://api.github.com/users/mananb77/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/mananb77/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/mananb77/subscriptions",
+      "organizations_url": "https://api.github.com/users/mananb77/orgs",
+      "repos_url": "https://api.github.com/users/mananb77/repos",
+      "events_url": "https://api.github.com/users/mananb77/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/mananb77/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "labels": [],
+    "state": "open",
+    "locked": false,
+    "assignees": [],
+    "milestone": null,
+    "comments": 0,
+    "created_at": "2026-04-20T02:36:34Z",
+    "updated_at": "2026-04-20T02:36:34Z",
+    "closed_at": null,
+    "assignee": null,
+    "author_association": "OWNER",
+    "active_lock_reason": null,
+    "sub_issues_summary": {
+      "total": 0,
+      "completed": 0,
+      "percent_completed": 0
+    },
+    "issue_dependencies_summary": {
+      "blocked_by": 0,
+      "total_blocked_by": 0,
+      "blocking": 0,
+      "total_blocking": 0
+    },
+    "body": "# Build a Full-Stack Quick Poll App\n\n## Summary\n\nBuild a simple full-stack web application that allows users to create polls, share them via a unique link, vote, and view live results. The app should have a clean, modern UI and a REST API backend with persistent storage.\n\n## How It Works\n\n1. **Create a poll** — A user visits the home page, types a question (e.g., \"Best pizza topping?\"), adds 2–6 answer options, and hits \"Create Poll\"\n2. **Share it** — They get a unique link they can copy and send to anyone\n3. **Vote** — Anyone with the link picks an option and submits their vote\n4. **See results** — After voting, a simple bar chart shows the current vote counts for each option\n\nNo login, no accounts. Just create, share, vote, and view results.\n\n## Motivation\n\nThis project is a test harness for evaluating agent-driven software development workflows. It covers the key concerns of a real full-stack app — routing, state management, API design, database modeling, and UI — while remaining small enough to build in a single sprint.\n\n## Tech Stack\n\n- **Frontend:** React (Vite) with Tailwind CSS\n- **Backend:** Node.js with Express\n- **Database:** SQLite (via `better-sqlite3`) — no external DB setup required\n- **Monorepo:** Single repo with `client/` and `server/` directories\n\n## Requirements\n\n### Backend (`server/`)\n\n1. **POST `/api/polls`** — Create a new poll\n   - Request body: `{ \"question\": string, \"options\": string[] }`\n   - Returns the created poll object with a unique `id`\n2. **GET `/api/polls/:id`** — Fetch a poll by ID\n   - Returns the poll question, options, and current vote counts\n3. **POST `/api/polls/:id/vote`** — Cast a vote\n   - Request body: `{ \"optionIndex\": number }`\n   - Increments the vote count for the selected option\n   - Returns the updated poll\n4. **Database schema:**\n   - `polls` table: `id` (TEXT, primary key, UUID), `question` (TEXT), `created_at` (DATETIME)\n   - `options` table: `id` (INTEGER, primary key), `poll_id` (TEXT, FK), `label` (TEXT), `votes` (INTEGER, default 0)\n\n### Frontend (`client/`)\n\n1. **Home page (`/`)** — Form to create a new poll\n   - Text input for the question\n   - Dynamic list of option inputs (minimum 2, add/remove buttons)\n   - \"Create Poll\" button that POSTs to the API and redirects to the results page\n2. **Poll page (`/poll/:id`)** — Vote and view results\n   - Displays the question and options as selectable cards or radio buttons\n   - \"Vote\" button to submit a choice\n   - After voting, show a results view with a simple bar chart of vote counts\n   - A \"Copy Link\" button to share the poll URL\n\n### Non-Functional\n\n- The server should serve the built frontend in production mode (single `npm start`)\n- Include a root-level `package.json` with scripts to install, build, and run the full app\n- Include basic input validation (non-empty question, at least 2 options, valid option index)\n- No authentication required\n\n## Acceptance Criteria\n\n- [ ] Running `npm install && npm run build && npm start` from the repo root starts the full app on a single port\n- [ ] A user can create a poll with a question and 2–6 options\n- [ ] A user can vote on a poll and immediately see updated results\n- [ ] A user can share a poll link and another user can vote on it\n- [ ] Poll data persists across server restarts (SQLite file on disk)\n- [ ] The UI is responsive and visually clean\n\n## Out of Scope\n\n- User accounts / authentication\n- Real-time WebSocket updates (polling or manual refresh is fine)\n- Deployment / CI/CD configuration\n- Rate limiting or duplicate vote prevention\n",
+    "closed_by": null,
+    "reactions": {
+      "url": "https://api.github.com/repos/mananb77/kanban-test-3/issues/1/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "timeline_url": "https://api.github.com/repos/mananb77/kanban-test-3/issues/1/timeline",
+    "performed_via_github_app": null,
+    "state_reason": null,
+    "pinned_comment": null
+  },
+  "comments": [
+    {}
+  ],
+  "attachments_found": 0,
+  "attachments": []
+}
