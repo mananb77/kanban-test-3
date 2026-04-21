@@ -19,6 +19,7 @@ export default function PollPage() {
     fetch(`/api/polls/${id}`)
       .then(res => {
         if (res.status === 404) { setNotFound(true); return null; }
+        if (!res.ok) { setNotFound(true); return null; }
         return res.json();
       })
       .then(data => { if (data) setPoll(data); })

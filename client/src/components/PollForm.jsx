@@ -1,4 +1,6 @@
 export default function PollForm({ question, options, onQuestionChange, onOptionChange, onAddOption, onRemoveOption, onSubmit, error, submitting }) {
+  const hasEnoughOptions = options.filter(o => o.text.trim()).length >= 2;
+
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4">
       <div>
@@ -18,10 +20,10 @@ export default function PollForm({ question, options, onQuestionChange, onOption
       <div className="flex flex-col gap-2">
         <span className="text-sm font-medium text-gray-700">Options</span>
         {options.map((opt, i) => (
-          <div key={i} className="flex gap-2 items-center">
+          <div key={opt.id} className="flex gap-2 items-center">
             <input
               type="text"
-              value={opt}
+              value={opt.text}
               onChange={e => onOptionChange(i, e.target.value)}
               placeholder={`Option ${i + 1}`}
               className="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -56,7 +58,7 @@ export default function PollForm({ question, options, onQuestionChange, onOption
 
       <button
         type="submit"
-        disabled={submitting || !question.trim() || options.filter(o => o.trim()).length < 2}
+        disabled={submitting || !question.trim() || !hasEnoughOptions}
         className="w-full bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
       >
         {submitting ? 'Creating...' : 'Create Poll'}

@@ -1,16 +1,19 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PollForm from '../components/PollForm';
 
 export default function HomePage() {
   const navigate = useNavigate();
   const [question, setQuestion] = useState('');
-  const [options, setOptions] = useState(['', '']);
+  const [options, setOptions] = useState([{ id: 0, text: '' }, { id: 1, text: '' }]);
+  const nextId = useRef(2);
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
   function handleAddOption() {
-    if (options.length < 6) setOptions([...options, '']);
+    if (options.length < 6) {
+      setOptions([...options, { id: nextId.current++, text: '' }]);
+    }
   }
 
   function handleRemoveOption(index) {
@@ -19,7 +22,7 @@ export default function HomePage() {
 
   function handleOptionChange(index, value) {
     const updated = [...options];
-    updated[index] = value;
+    updated[index] = { ...updated[index], text: value };
     setOptions(updated);
   }
 
@@ -31,7 +34,7 @@ export default function HomePage() {
       setError('Question is required.');
       return;
     }
-    const filledOptions = options.filter(o => o.trim());
+    const filledOptions = options.map(o => o.text).filter(t => t.trim());
     if (filledOptions.length < 2) {
       setError('At least 2 options are required.');
       return;
