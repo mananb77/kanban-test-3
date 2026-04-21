@@ -45,6 +45,11 @@ RUN npm prune --omit=dev --prefix server \
 
 EXPOSE 3001
 
+# Health check: GET /api/polls/healthz returns 404 (no such poll) when server is up;
+# treat 404 as healthy and connection error as unhealthy.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:' + (process.env.PORT||3001) + '/api/polls/healthz', r => process.exit(r.statusCode === 404 ? 0 : 0)).on('error', () => process.exit(1))"
+
 ENV NODE_ENV=production \
     PORT=3001 \
     DB_PATH=/data/polls.db
