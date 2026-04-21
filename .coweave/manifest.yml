@@ -1,0 +1,81 @@
+# CoWeave manifest — declares the sandbox infra needed for QA.
+# Consumed by: qa-infrastructure-setup-manifest-driven, qa-application-build-*,
+# qa-application-deployment-workflow.
+
+name: quick-poll
+description: Full-stack Quick Poll app (React + Vite + Express + SQLite)
+
+# ──────────────────────────────────────────────────────────────────
+# Infrastructure — external stateful services this app needs.
+# ──────────────────────────────────────────────────────────────────
+# The backend uses an in-pod SQLite file (`/data/polls.db`), not an
+# external DB. The platform only needs to create a PVC for `/data`;
+# no Postgres, no Redis, no object store required.
+infrastructure:
+  databases: []
+  caches:    []
+  # Persistent volume for the SQLite file and WAL sidecar files.
+  volumes:
+    - name: quick-poll-data
+      mount_path: /data
+      size: 1Gi
+      access_mode: ReadWriteOnce
+
+# ──────────────────────────────────────────────────────────────────
+# Services — what the deployment workflow deploys.
+# ──────────────────────────────────────────────────────────────────
+services:
+  - name: quick-poll
+    type: web
+    # Build — consumed by qa-application-build-node-js-typescript-kaniko
+    build:
+      type: nodejs-typescript
+      # Dockerfile added in developer-implement iteration 2 (see
+      # issue-1-dev-iteration-2-special-instructions.md).
+      dockerfile: Dockerfile
+      context: .
+    # Runtime
+    image_name: quick-poll
+    port: 3001
+    replicas: 1
+    env:
+      NODE_ENV: production
+      PORT: "3001"
+      DB_PATH: /data/polls.db
+    volumes:
+      - name: quick-poll-data
+        mount_path: /data
+    # Kubernetes security context — non-root user baked into the image.
+    security:
+      run_as_user: 10001
+      run_as_group: 10001
+      read_only_root_filesystem: false   # better-sqlite3 WAL files
+
+# ──────────────────────────────────────────────────────────────────
+# Tests — commands invoked by qa-test-execution-workflow.
+# ──────────────────────────────────────────────────────────────────
+# The repo currently has no test suite; smoke checks only until a
+# proper suite lands. qa-test-execution-workflow will skip stages
+# whose commands are empty.
+tests:
+  unit:
+    command: ""
+  integration:
+    command: ""
+  smoke:
+    # Curl-level acceptance-criteria parity with the iteration-1 manual
+    # verification. Run inside the sandbox against the deployed service.
+    # $BASE_URL is injected by qa-test-execution-workflow at run time.
+    command: |
+      set -euo pipefail
+      : "${BASE_URL:?BASE_URL must be set by the test runner}"
+      curl -sf "$BASE_URL/" | grep -q '<div id="root">'
+      POLL=$(curl -sf -X POST "$BASE_URL/api/polls" \
+        -H 'content-type: application/json' \
+        -d '{"question":"smoke?","options":["yes","no"]}')
+      POLL_ID=$(echo "$POLL" | jq -r .id)
+      curl -sf "$BASE_URL/api/polls/$POLL_ID" | jq -e '.options | length == 2'
+      curl -sf -X POST "$BASE_URL/api/polls/$POLL_ID/vote" \
+        -H 'content-type: application/json' \
+        -d '{"optionIndex":0}'
+      curl -sf "$BASE_URL/api/polls/$POLL_ID" | jq -e '.options[0].vote_count == 1'
