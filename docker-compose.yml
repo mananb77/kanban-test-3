@@ -1,0 +1,17 @@
+version: "3.8"
+services:
+  quick-poll:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      DB_PATH: /data/polls.db
+    volumes:
+      - quick-poll-data:/data
+
+volumes:
+  quick-poll-data:

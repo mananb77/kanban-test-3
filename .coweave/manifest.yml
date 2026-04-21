@@ -1,81 +1,57 @@
-# CoWeave manifest — declares the sandbox infra needed for QA.
-# Consumed by: qa-infrastructure-setup-manifest-driven, qa-application-build-*,
-# qa-application-deployment-workflow.
+apiVersion: coweave.ai/v2
+kind: TestEnvironment
 
-name: quick-poll
-description: Full-stack Quick Poll app (React + Vite + Express + SQLite)
-
-# ──────────────────────────────────────────────────────────────────
-# Infrastructure — external stateful services this app needs.
-# ──────────────────────────────────────────────────────────────────
-# The backend uses an in-pod SQLite file (`/data/polls.db`), not an
-# external DB. The platform only needs to create a PVC for `/data`;
-# no Postgres, no Redis, no object store required.
-infrastructure:
-  databases: []
-  caches:    []
-  # Persistent volume for the SQLite file and WAL sidecar files.
-  volumes:
-    - name: quick-poll-data
-      mount_path: /data
-      size: 1Gi
-      access_mode: ReadWriteOnce
+metadata:
+  generatedBy: hand-authored
+  generatedAt: "2026-04-21T03:40:00Z"
 
 # ──────────────────────────────────────────────────────────────────
-# Services — what the deployment workflow deploys.
+# Spec — consumed by qa-infrastructure-setup-manifest-driven and the
+# downstream build + deploy + test workflows.
 # ──────────────────────────────────────────────────────────────────
-services:
-  - name: quick-poll
-    type: web
-    # Build — consumed by qa-application-build-node-js-typescript-kaniko
-    build:
-      type: nodejs-typescript
-      # Dockerfile added in developer-implement iteration 2 (see
-      # issue-1-dev-iteration-2-special-instructions.md).
-      dockerfile: Dockerfile
-      context: .
-    # Runtime
-    image_name: quick-poll
-    port: 3001
-    replicas: 1
-    env:
-      NODE_ENV: production
-      PORT: "3001"
-      DB_PATH: /data/polls.db
-    volumes:
-      - name: quick-poll-data
-        mount_path: /data
-    # Kubernetes security context — non-root user baked into the image.
-    security:
-      run_as_user: 10001
-      run_as_group: 10001
-      read_only_root_filesystem: false   # better-sqlite3 WAL files
+spec:
+  # Language stack. Enum: node-typescript | python | go | java | other.
+  # The Quick Poll app is plain JS but rides the same pipeline as TS.
+  stack: node-typescript
 
-# ──────────────────────────────────────────────────────────────────
-# Tests — commands invoked by qa-test-execution-workflow.
-# ──────────────────────────────────────────────────────────────────
-# The repo currently has no test suite; smoke checks only until a
-# proper suite lands. qa-test-execution-workflow will skip stages
-# whose commands are empty.
-tests:
-  unit:
-    command: ""
-  integration:
-    command: ""
-  smoke:
-    # Curl-level acceptance-criteria parity with the iteration-1 manual
-    # verification. Run inside the sandbox against the deployed service.
-    # $BASE_URL is injected by qa-test-execution-workflow at run time.
+  # Infrastructure entrypoint: exactly one of compose OR helm (helm is
+  # stubbed in v0.1 — compose is the supported path). The sandbox
+  # runner shells out to docker-compose with this file.
+  entrypoint:
+    compose:
+      file: docker-compose.yml
+
+  # Informational: downstream build can hint at language/runtime targets.
+  dependencies:
+    - "node@20"
+    - "better-sqlite3"
+    - "express"
+    - "react"
+    - "vite"
+
+  # Tests — executed by qa-test-execution-workflow inside the sandbox.
+  # BASE_URL is injected by the test runner at execution time.
+  # No framework-based suite yet (TDD §10.1 specifies manual + curl
+  # acceptance); smoke tests here mirror the curl-level acceptance
+  # checks performed during dev iteration 1.
+  tests:
     command: |
       set -euo pipefail
       : "${BASE_URL:?BASE_URL must be set by the test runner}"
+      # UI served
       curl -sf "$BASE_URL/" | grep -q '<div id="root">'
+      # Create poll
       POLL=$(curl -sf -X POST "$BASE_URL/api/polls" \
         -H 'content-type: application/json' \
         -d '{"question":"smoke?","options":["yes","no"]}')
       POLL_ID=$(echo "$POLL" | jq -r .id)
+      # Fetch poll
       curl -sf "$BASE_URL/api/polls/$POLL_ID" | jq -e '.options | length == 2'
+      # Cast vote
       curl -sf -X POST "$BASE_URL/api/polls/$POLL_ID/vote" \
         -H 'content-type: application/json' \
         -d '{"optionIndex":0}'
+      # Verify increment
       curl -sf "$BASE_URL/api/polls/$POLL_ID" | jq -e '.options[0].vote_count == 1'
+    reportDir: test-reports
+    timeoutSec: 300
