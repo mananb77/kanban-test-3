@@ -16,7 +16,7 @@
   "tests_passing": 0,
   "review_gaps_addressed": 1,
   "gap_addressed": "No HEALTHCHECK instruction in Dockerfile (LOW priority gap from iteration 2)",
-  "commit_hash": "",
+  "commit_hash": "4a3a4a3",
   "iteration_mode": "CONTINUATION",
   "scope": "packaging-only",
   "application_code_changed": false
