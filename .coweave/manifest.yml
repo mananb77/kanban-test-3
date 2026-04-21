@@ -19,7 +19,7 @@ spec:
   # runner shells out to docker-compose with this file.
   entrypoint:
     compose:
-      file: docker-compose.yml
+      file: ../docker-compose.yml
 
   # Informational: downstream build can hint at language/runtime targets.
   dependencies:
