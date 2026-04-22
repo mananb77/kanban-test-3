@@ -3,7 +3,7 @@ kind: TestEnvironment
 
 metadata:
   generatedBy: hand-authored
-  generatedAt: "2026-04-21T03:40:00Z"
+  generatedAt: "2026-04-22T06:15:00Z"
 
 # ──────────────────────────────────────────────────────────────────
 # Spec — consumed by qa-infrastructure-setup-manifest-driven and the
@@ -30,28 +30,39 @@ spec:
     - "vite"
 
   # Tests — executed by qa-test-execution-workflow inside the sandbox.
-  # BASE_URL is injected by the test runner at execution time.
-  # No framework-based suite yet (TDD §10.1 specifies manual + curl
-  # acceptance); smoke tests here mirror the curl-level acceptance
-  # checks performed during dev iteration 1.
+  # coweave-infra 0.2.5+ invokes this via `docker exec <sandbox> bash -c`,
+  # i.e. INSIDE the quick-poll container. localhost:3001 is the app's
+  # own port inside that container, so no BASE_URL injection needed.
+  # curl + jq are present in the runtime image (see Dockerfile runtime
+  # stage) — kept there deliberately so smoke authors aren't forced
+  # to write test scripts in the app's language.
   tests:
     command: |
       set -euo pipefail
-      : "${BASE_URL:?BASE_URL must be set by the test runner}"
-      # UI served
+      BASE_URL="${BASE_URL:-http://localhost:3001}"
+
+      # 1. UI served with React root
       curl -sf "$BASE_URL/" | grep -q '<div id="root">'
-      # Create poll
+
+      # 2. Create poll
       POLL=$(curl -sf -X POST "$BASE_URL/api/polls" \
         -H 'content-type: application/json' \
         -d '{"question":"smoke?","options":["yes","no"]}')
       POLL_ID=$(echo "$POLL" | jq -r .id)
-      # Fetch poll
-      curl -sf "$BASE_URL/api/polls/$POLL_ID" | jq -e '.options | length == 2'
-      # Cast vote
+      [ -n "$POLL_ID" ] && [ "$POLL_ID" != "null" ] || { echo "create: no id"; exit 1; }
+
+      # 3. Fetch poll
+      curl -sf "$BASE_URL/api/polls/$POLL_ID" | jq -e '.options | length == 2' > /dev/null
+
+      # 4. Cast vote
       curl -sf -X POST "$BASE_URL/api/polls/$POLL_ID/vote" \
         -H 'content-type: application/json' \
-        -d '{"optionIndex":0}'
-      # Verify increment
-      curl -sf "$BASE_URL/api/polls/$POLL_ID" | jq -e '.options[0].vote_count == 1'
+        -d '{"optionIndex":0}' > /dev/null
+
+      # 5. Verify increment persisted
+      curl -sf "$BASE_URL/api/polls/$POLL_ID" \
+        | jq -e '.options[0].vote_count == 1' > /dev/null
+
+      echo "✓ smoke suite passed: index, create, fetch, vote, persist"
     reportDir: test-reports
     timeoutSec: 300

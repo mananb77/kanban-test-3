@@ -22,9 +22,15 @@ RUN npm run build
 # Stage 2: Runtime — minimal image, no compiler toolchain
 FROM node:20-bookworm-slim AS runtime
 
-# Only the shared library that better-sqlite3 links against at load time
+# libsqlite3-0 — shared library better-sqlite3 links against at load time.
+# curl + jq + ca-certificates — used by the smoke suite declared in
+# .coweave/manifest.yml's spec.tests.command (coweave-infra runs the
+# command inside this container via `docker exec ... bash -c`). Keeping
+# the tooling in the runtime image is a deliberate tradeoff (~25 MB) for
+# consistency across language stacks: smoke authors shouldn't have to
+# rewrite their test script in the app's language.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libsqlite3-0 \
+    libsqlite3-0 curl jq ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 # Non-root user: uid/gid 10001
