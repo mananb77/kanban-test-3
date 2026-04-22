@@ -48,6 +48,30 @@ assert_json() {
   fi
 }
 
+# Passes if haystack contains needle.
+assert_contains() {
+  local desc="$1" needle="$2" haystack="$3"
+  if [[ "$haystack" == *"$needle"* ]]; then
+    pass "$desc"
+  else
+    fail "$desc  (expected to contain='$needle'  actual='$haystack')"
+  fi
+}
+
+# Like http_get but returns Content-Type header value; body still in $TMPFILE.
+http_get_type() {
+  local url="$1"; shift
+  curl -s -o "$TMPFILE" -w "%{content_type}" "$@" "$url"
+}
+
+# Like http_post but returns Content-Type header value; body still in $TMPFILE.
+http_post_type() {
+  local url="$1" body="$2"; shift 2
+  curl -s -o "$TMPFILE" -w "%{content_type}" \
+    -X POST -H 'Content-Type: application/json' \
+    -d "$body" "$@" "$url"
+}
+
 echo ""
 echo "=== Quick Poll — Comprehensive Smoke & API Tests ==="
 echo ""
@@ -245,6 +269,141 @@ STATUS=$(http_get "$BASE_URL/api/polls/$POLL_B")
 assert_eq    "6: poll B fetch returns 200"                "200" "$STATUS"
 assert_json  "6: poll B options unaffected by vote on A"  '.options[0].vote_count == 0'
 assert_json  "6: poll B options[1] unaffected"            '.options[1].vote_count == 0'
+
+# ────────────────────────────────────────────────────────────────
+# 7. RESPONSE SCHEMA — full field presence & types
+# ────────────────────────────────────────────────────────────────
+echo "── 7. Response Schema ───────────────────────────────────────"
+
+STATUS=$(http_get "$BASE_URL/api/polls/$POLL_ID")
+assert_eq    "7a: re-fetch for schema check returns 200"    "200" "$STATUS"
+assert_json  "7a: options[0].id is a number"                '.options[0].id | type == "number"'
+assert_json  "7b: options[0].poll_id equals poll id"        ".options[0].poll_id == \"$POLL_ID\""
+assert_json  "7c: options[0] has text field"                '.options[0] | has("text")'
+assert_json  "7c: options[0] has vote_count field"          '.options[0] | has("vote_count")'
+assert_json  "7d: created_at is a positive integer"         '.created_at | (type == "number" and . > 1700000000)'
+assert_json  "7e: option ids ordered ascending"             '.options[0].id < .options[1].id'
+
+STATUS=$(http_post "$BASE_URL/api/polls/$POLL_ID/vote" '{"optionIndex":0}')
+assert_eq    "7f: vote response returns 200"                "200" "$STATUS"
+assert_json  "7f: vote response options[0].id is a number"  '.options[0].id | type == "number"'
+assert_json  "7f: vote response options[0].poll_id matches" ".options[0].poll_id == \"$POLL_ID\""
+assert_json  "7f: vote response has question field"         '.question | type == "string"'
+
+# ────────────────────────────────────────────────────────────────
+# 8. ADDITIONAL INPUT TYPE VALIDATION
+# ────────────────────────────────────────────────────────────────
+echo "── 8. Additional Type Validation ────────────────────────────"
+
+STATUS=$(http_post "$BASE_URL/api/polls/$POLL_ID/vote" '{"optionIndex":"0"}')
+assert_eq    "8a: 400 when optionIndex is a string"         "400" "$STATUS"
+assert_json  "8a: error body has error field"               '.error | type == "string"'
+
+STATUS=$(http_post "$BASE_URL/api/polls/$POLL_ID/vote" '{"optionIndex":null}')
+assert_eq    "8b: 400 when optionIndex is null"             "400" "$STATUS"
+
+STATUS=$(http_post "$BASE_URL/api/polls/$POLL_ID/vote" '{"optionIndex":true}')
+assert_eq    "8c: 400 when optionIndex is boolean"          "400" "$STATUS"
+
+STATUS=$(http_post "$BASE_URL/api/polls" '{"question":"Q?","options":"A,B"}')
+assert_eq    "8d: 400 when options is a string not array"   "400" "$STATUS"
+
+STATUS=$(http_post "$BASE_URL/api/polls" '{"question":"Q?","options":["A",null]}')
+assert_eq    "8e: 400 when options contains null element"   "400" "$STATUS"
+
+STATUS=$(http_post "$BASE_URL/api/polls" '{"question":"Q?","options":[]}')
+assert_eq    "8f: 400 when options is empty array"          "400" "$STATUS"
+
+STATUS=$(http_post "$BASE_URL/api/polls" '{"question":"Q?","options":{"0":"A","1":"B"}}')
+assert_eq    "8g: 400 when options is an object not array"  "400" "$STATUS"
+
+# ────────────────────────────────────────────────────────────────
+# 9. MIDDLE-BOUNDARY POLL SIZES (3, 4, 5 options)
+# ────────────────────────────────────────────────────────────────
+echo "── 9. Middle-Boundary Poll Sizes ────────────────────────────"
+
+# 3-option poll
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  '{"question":"Three?","options":["Alpha","Beta","Gamma"]}')
+assert_eq    "9a: 201 on 3-option poll"                     "201" "$STATUS"
+assert_json  "9a: 3 options returned"                       '.options | length == 3'
+THREE_ID=$(jq -r .id "$TMPFILE")
+
+STATUS=$(http_post "$BASE_URL/api/polls/$THREE_ID/vote" '{"optionIndex":2}')
+assert_eq    "9b: 200 voting last option (index 2) of 3"    "200" "$STATUS"
+assert_json  "9b: options[2].vote_count incremented to 1"   '.options[2].vote_count == 1'
+assert_json  "9b: options[0].vote_count unchanged at 0"     '.options[0].vote_count == 0'
+
+STATUS=$(http_post "$BASE_URL/api/polls/$THREE_ID/vote" '{"optionIndex":3}')
+assert_eq    "9c: 400 on index 3 for 3-option poll"         "400" "$STATUS"
+
+# 5-option poll
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  '{"question":"Five?","options":["A","B","C","D","E"]}')
+assert_eq    "9d: 201 on 5-option poll"                     "201" "$STATUS"
+assert_json  "9d: 5 options returned"                       '.options | length == 5'
+FIVE_ID=$(jq -r .id "$TMPFILE")
+
+STATUS=$(http_post "$BASE_URL/api/polls/$FIVE_ID/vote" '{"optionIndex":4}')
+assert_eq    "9e: 200 voting last option (index 4) of 5"    "200" "$STATUS"
+assert_json  "9e: options[4].vote_count incremented to 1"   '.options[4].vote_count == 1'
+
+STATUS=$(http_post "$BASE_URL/api/polls/$FIVE_ID/vote" '{"optionIndex":5}')
+assert_eq    "9f: 400 on index 5 for 5-option poll"         "400" "$STATUS"
+
+# 4-option poll
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  '{"question":"Four?","options":["W","X","Y","Z"]}')
+assert_eq    "9g: 201 on 4-option poll"                     "201" "$STATUS"
+assert_json  "9g: 4 options returned"                       '.options | length == 4'
+
+# ────────────────────────────────────────────────────────────────
+# 10. SPA ROUTE FALLBACK
+# ────────────────────────────────────────────────────────────────
+echo "── 10. SPA Route Fallback ───────────────────────────────────"
+
+STATUS=$(http_get "$BASE_URL/poll/00000000-0000-0000-0000-000000000000")
+assert_eq    "10a: GET /poll/:id returns 200 (SPA fallback)" "200" "$STATUS"
+if grep -q '<div id="root">' "$TMPFILE" 2>/dev/null; then
+  pass "10a: SPA fallback serves React root element"
+else
+  fail "10a: SPA fallback missing <div id=\"root\">"
+fi
+
+STATUS=$(http_get "$BASE_URL/unknown-route-xyz")
+assert_eq    "10b: GET unknown path returns 200 (SPA fallback)" "200" "$STATUS"
+if grep -q '<div id="root">' "$TMPFILE" 2>/dev/null; then
+  pass "10b: Unknown path serves React root element"
+else
+  fail "10b: Unknown path missing <div id=\"root\">"
+fi
+
+# ────────────────────────────────────────────────────────────────
+# 11. CONTENT-TYPE HEADERS
+# ────────────────────────────────────────────────────────────────
+echo "── 11. Content-Type Headers ─────────────────────────────────"
+
+CT=$(http_post_type "$BASE_URL/api/polls" \
+  '{"question":"CT check?","options":["Yes","No"]}')
+CT_POLL_ID=$(jq -r .id "$TMPFILE")
+assert_contains "11a: POST /api/polls returns application/json" \
+  "application/json" "$CT"
+
+CT=$(http_get_type "$BASE_URL/api/polls/$CT_POLL_ID")
+assert_contains "11b: GET /api/polls/:id returns application/json" \
+  "application/json" "$CT"
+
+CT=$(http_post_type "$BASE_URL/api/polls/$CT_POLL_ID/vote" '{"optionIndex":0}')
+assert_contains "11c: POST /api/polls/:id/vote returns application/json" \
+  "application/json" "$CT"
+
+CT=$(http_post_type "$BASE_URL/api/polls" '{"question":"   ","options":["A","B"]}')
+assert_contains "11d: 400 error response returns application/json" \
+  "application/json" "$CT"
+
+CT=$(http_get_type "$BASE_URL/api/polls/00000000-0000-0000-0000-000000000000")
+assert_contains "11e: 404 error response returns application/json" \
+  "application/json" "$CT"
 
 # ────────────────────────────────────────────────────────────────
 # Summary

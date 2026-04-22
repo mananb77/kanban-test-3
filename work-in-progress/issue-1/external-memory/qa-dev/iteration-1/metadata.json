@@ -9,21 +9,38 @@
   "issue": 1,
   "test_file": "tests/smoke.sh",
   "test_framework": "bash + curl + jq",
-  "tests_total": 56,
+  "tests_total": 97,
   "test_sections": [
-    { "id": "1", "name": "Frontend", "assertions": 2 },
-    { "id": "2", "name": "POST /api/polls", "assertions": 21 },
-    { "id": "3", "name": "GET /api/polls/:id", "assertions": 8 },
-    { "id": "4", "name": "POST /api/polls/:id/vote", "assertions": 17 },
-    { "id": "5", "name": "Persistence", "assertions": 4 },
-    { "id": "6", "name": "Poll Isolation", "assertions": 4 }
+    { "id": "1",  "name": "Frontend",                      "assertions": 2,  "status": "existing" },
+    { "id": "2",  "name": "POST /api/polls",               "assertions": 21, "status": "existing" },
+    { "id": "3",  "name": "GET /api/polls/:id",            "assertions": 8,  "status": "existing" },
+    { "id": "4",  "name": "POST /api/polls/:id/vote",      "assertions": 17, "status": "existing" },
+    { "id": "5",  "name": "Persistence",                   "assertions": 4,  "status": "existing" },
+    { "id": "6",  "name": "Poll Isolation",                "assertions": 4,  "status": "existing" },
+    { "id": "7",  "name": "Response Schema Completeness",  "assertions": 11, "status": "new" },
+    { "id": "8",  "name": "Additional Type Validation",    "assertions": 8,  "status": "new" },
+    { "id": "9",  "name": "Middle-Boundary Poll Sizes",    "assertions": 13, "status": "new" },
+    { "id": "10", "name": "SPA Route Fallback",            "assertions": 4,  "status": "new" },
+    { "id": "11", "name": "Content-Type Headers",          "assertions": 5,  "status": "new" }
   ],
-  "files_created": [
-    "tests/smoke.sh"
+  "helpers_added": [
+    "assert_contains",
+    "http_get_type",
+    "http_post_type"
   ],
   "files_modified": [
-    "Dockerfile",
-    ".coweave/manifest.yml"
+    "tests/smoke.sh"
+  ],
+  "gaps_addressed": [
+    "options object missing poll_id and id type verification",
+    "created_at integer range not validated",
+    "option insertion order guarantee not tested",
+    "JS type coercion edge cases for optionIndex (string, null, boolean)",
+    "JS type coercion edge cases for options (string, null element, empty array, plain object)",
+    "Middle poll sizes 3, 4, 5 not tested",
+    "Vote-index boundary rejection per poll size not tested",
+    "SPA catch-all route not tested",
+    "HTTP Content-Type response headers not verified"
   ],
   "acceptance_criteria_coverage": {
     "AC1": "infrastructure",
@@ -31,7 +48,7 @@
     "AC3": "covered",
     "AC4": "covered",
     "AC5": "covered",
-    "AC6": "partial"
+    "AC6": "covered"
   },
   "known_gaps": [
     "No DOM/browser-level UI tests (PollForm, PollVote, PollResults components)",
