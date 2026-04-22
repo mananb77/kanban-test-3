@@ -43,6 +43,7 @@ WORKDIR /app
 COPY --from=builder /app/server ./server
 COPY --from=builder /app/client/dist ./client/dist
 COPY --from=builder /app/package.json ./
+COPY --from=builder /app/tests ./tests
 
 # Strip dev dependencies (server has none, but good hygiene)
 RUN npm prune --omit=dev --prefix server \

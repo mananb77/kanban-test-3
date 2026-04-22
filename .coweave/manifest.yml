@@ -36,33 +36,8 @@ spec:
   # curl + jq are present in the runtime image (see Dockerfile runtime
   # stage) — kept there deliberately so smoke authors aren't forced
   # to write test scripts in the app's language.
+  # tests/smoke.sh is copied into /app/tests/ by the Dockerfile runtime stage.
   tests:
-    command: |
-      set -euo pipefail
-      BASE_URL="${BASE_URL:-http://localhost:3001}"
-
-      # 1. UI served with React root
-      curl -sf "$BASE_URL/" | grep -q '<div id="root">'
-
-      # 2. Create poll
-      POLL=$(curl -sf -X POST "$BASE_URL/api/polls" \
-        -H 'content-type: application/json' \
-        -d '{"question":"smoke?","options":["yes","no"]}')
-      POLL_ID=$(echo "$POLL" | jq -r .id)
-      [ -n "$POLL_ID" ] && [ "$POLL_ID" != "null" ] || { echo "create: no id"; exit 1; }
-
-      # 3. Fetch poll
-      curl -sf "$BASE_URL/api/polls/$POLL_ID" | jq -e '.options | length == 2' > /dev/null
-
-      # 4. Cast vote
-      curl -sf -X POST "$BASE_URL/api/polls/$POLL_ID/vote" \
-        -H 'content-type: application/json' \
-        -d '{"optionIndex":0}' > /dev/null
-
-      # 5. Verify increment persisted
-      curl -sf "$BASE_URL/api/polls/$POLL_ID" \
-        | jq -e '.options[0].vote_count == 1' > /dev/null
-
-      echo "✓ smoke suite passed: index, create, fetch, vote, persist"
+    command: bash /app/tests/smoke.sh
     reportDir: test-reports
     timeoutSec: 300
