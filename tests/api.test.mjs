@@ -427,6 +427,48 @@ describe('Input validation', () => {
     assert.equal(body.question, '<b>Bold</b> or plain?', 'HTML in question not escaped');
     assert.equal(body.options[1].text, 'Plain &amp; simple', 'HTML entity not double-escaped');
   });
+
+  test('missing question key returns 400', async () => {
+    const { status, body } = await apiPost('/api/polls', { options: ['A', 'B'] });
+    assert.equal(status, 400, `Expected 400 for missing question key, got ${status}`);
+    assert.equal(typeof body.error, 'string', 'Error response must have error field');
+  });
+
+  test('missing options key returns 400', async () => {
+    const { status, body } = await apiPost('/api/polls', { question: 'Q?' });
+    assert.equal(status, 400, `Expected 400 for missing options key, got ${status}`);
+    assert.equal(typeof body.error, 'string', 'Error response must have error field');
+  });
+
+  test('options as non-array types return 400', async () => {
+    const cases = [
+      { options: 'A,B',              desc: 'string "A,B"' },
+      { options: { 0: 'A', 1: 'B' }, desc: 'object {0:"A",1:"B"}' },
+      { options: null,               desc: 'null' },
+    ];
+    for (const { options, desc } of cases) {
+      const { status } = await apiPost('/api/polls', { question: 'Q?', options });
+      assert.equal(status, 400, `Expected 400 for options as ${desc}`);
+    }
+  });
+
+  test('empty string question returns 400', async () => {
+    const { status, body } = await apiPost('/api/polls', { question: '', options: ['A', 'B'] });
+    assert.equal(status, 400, 'Empty string question should be rejected (trims to empty)');
+    assert.equal(typeof body.error, 'string');
+  });
+
+  test('empty and whitespace-only options return 400', async () => {
+    const cases = [
+      { options: ['A', ''],     desc: 'empty string option' },
+      { options: ['A', '   '],  desc: 'whitespace-only option' },
+      { options: ['A', '\t\n'], desc: 'tab+newline option' },
+    ];
+    for (const { options, desc } of cases) {
+      const { status } = await apiPost('/api/polls', { question: 'Q?', options });
+      assert.equal(status, 400, `Expected 400 for ${desc}`);
+    }
+  });
 });
 
 // ── Not found handling ────────────────────────────────────────────────────────

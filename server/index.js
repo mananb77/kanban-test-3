@@ -18,7 +18,8 @@ app.get('*', (_req, res) => {
 
 app.use((err, _req, res, _next) => {
   console.error(err.stack);
-  res.status(500).json({ error: 'Internal server error' });
+  const status = err.status || err.statusCode || 500;
+  res.status(status).json({ error: err.message || 'Internal server error' });
 });
 
 initDb();
