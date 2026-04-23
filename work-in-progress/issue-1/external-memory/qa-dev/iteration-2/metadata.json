@@ -16,15 +16,29 @@
     "pass_rate": 1.0
   },
   "additions": {
-    "sections_added": 6,
-    "section_numbers": [12, 13, 14, 15, 16, 17],
-    "tests_added": 62,
-    "tests_verified_passing": 62
+    "sections_added": 12,
+    "section_numbers": [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+    "tests_added": 95,
+    "tests_verified_passing": 95,
+    "sub_passes": [
+      {
+        "label": "first",
+        "sections_added": 6,
+        "section_numbers": [12, 13, 14, 15, 16, 17],
+        "tests_added": 62
+      },
+      {
+        "label": "second",
+        "sections_added": 6,
+        "section_numbers": [18, 19, 20, 21, 22, 23],
+        "tests_added": 33
+      }
+    ]
   },
   "projected_totals": {
-    "sections": 17,
-    "tests_total": 162,
-    "tests_passed": 162,
+    "sections": 23,
+    "tests_total": 195,
+    "tests_passed": 195,
     "tests_failed": 0,
     "pass_rate": 1.0
   },
@@ -40,9 +54,20 @@
     "complete response schema for all 3 endpoints",
     "vote response created_at field presence",
     "response consistency across POST/GET/VOTE",
-    "GET idempotency (non-mutating reads)"
+    "GET idempotency (non-mutating reads)",
+    "null and boolean false question values",
+    "numeric zero as falsy option element",
+    "very large and exact-boundary optionIndex rejection",
+    "whitespace-via-escape-sequence question trimming",
+    "TDD health check endpoint (GET /api/polls/healthz -> 404)",
+    "created_at range validation (Unix epoch, within 60s of now)",
+    "created_at immutability across GET requests",
+    "vote response option-count completeness (6-option and 3-option polls)",
+    "total vote_count sum after single vote equals 1",
+    "extra unknown fields silently ignored in creation and vote bodies",
+    "30-vote sequential accumulation without data loss"
   ],
-  "verification_method": "Python urllib HTTP client against local Node.js server (same stack as Docker image)",
+  "verification_method": "curl against local Node.js server (same stack as Docker image)",
   "files_modified": [
     "tests/smoke.sh"
   ],

@@ -1,8 +1,13 @@
-# QA Summary — Iteration 2
+# QA Summary — Iteration 2 (Updated)
 
 ## Overview
 
-Enhanced the existing `tests/smoke.sh` smoke test suite for the Quick Poll app (React + Express + SQLite). The baseline suite from QA iteration 10 had **100 tests across 11 sections**, all passing. This iteration adds **6 new sections (12–17)** with approximately **62 additional test assertions**, bringing the projected total to ~162 tests.
+Enhanced the existing `tests/smoke.sh` smoke test suite for the Quick Poll app (React + Express + SQLite). The baseline suite from QA iteration 10 had **100 tests across 11 sections**, all passing.
+
+This iteration (across two sub-passes) added **12 new sections (12–23)** with approximately **95 additional test assertions**, bringing the projected total to ~195 tests.
+
+- **Sections 12–17** (first sub-pass): Non-standard IDs, Unicode, duplicates, vote accumulation, complete schema, response consistency
+- **Sections 18–23** (second sub-pass): Input edge cases, health check, timestamp validation, vote response completeness, extra-field handling, high-count accumulation
 
 All new tests were verified correct against the running server using a Python HTTP client before being committed to `smoke.sh`.
 
@@ -78,10 +83,51 @@ The bash test file (`tests/smoke.sh`) requires `bash`, `curl`, and `jq` — all 
 
 ---
 
+## New Tests Added (Second Sub-pass — Sections 18–23)
+
+### Section 18 — Additional Input Edge Cases (6 tests)
+Covers server validation paths missed by the existing type-validation suite.
+- 18a: `question: null` → 400 (falsy guard)
+- 18b: `question: false` → 400 (falsy guard)
+- 18c: `optionIndex: 1000000` (far out-of-bounds) → 400
+- 18d: `optionIndex == options.length` (off-by-one exclusive bound) → 400
+- 18e: `question: "\n\t\n"` (whitespace via escape sequences trims to empty) → 400
+- 18f: `options: ["A", 0]` (numeric zero is falsy, caught before `.trim()`) → 400
+
+### Section 19 — Health Check Endpoint (2 tests)
+Documents the TDD §9.1 health-check mechanism used by the Dockerfile `HEALTHCHECK` directive.
+- 19a: `GET /api/polls/healthz` → 404 + error field (server up indicator)
+- 19b: `GET /api/polls/ping` → 404 (confirms behaviour is path-agnostic, not specific to "healthz")
+
+### Section 20 — Timestamp Range Validation (4 tests)
+Verifies `created_at` is a well-formed Unix epoch second — both from creation and across subsequent GETs.
+- 20a: Create poll (setup) → 201
+- 20b: `created_at` is within ±60 s of current Unix time (bash `date +%s` comparison)
+- 20c: `created_at` is in plausible range (> 1700000000, < 4102444800)
+- 20d: GET response `created_at` matches original POST value (field is immutable)
+
+### Section 21 — Vote Response Completeness (8 tests)
+Verifies that `POST /:id/vote` returns the full options array with correct counts and ordering.
+- 21a: Vote on 6-option poll → response has 6 options, ascending order, only option 0 incremented
+- 21b: Sum of all vote_counts equals 1 after single vote
+- 21c: Vote on 3-option poll → response has exactly 3 options, correct spot-checks
+
+### Section 22 — Extra Request Fields Ignored (4 tests)
+Verifies JavaScript destructuring silently discards unknown JSON fields in both endpoints.
+- 22a: POST `/api/polls` with `extra` + `foo` fields → 201, question and options correct
+- 22b: POST `/api/polls/:id/vote` with `userId` + `timestamp` + `extra` → 200, vote counted
+
+### Section 23 — High Vote Count Accumulation (5 tests)
+Extends section 15 (8 votes) to 30 sequential votes, confirming no vote is lost under load.
+- 23a: 20 votes on option 0, 10 on option 1 → final counts 20/10, sum 30
+
+---
+
 ## Total Projected Test Count
 
 | Source | Tests |
 |--------|-------|
-| Baseline (sections 1–11) | 100 |
-| New (sections 12–17) | ~62 |
-| **Total** | **~162** |
+| Baseline (sections 1–11) | ~100 |
+| First sub-pass (sections 12–17) | ~62 |
+| Second sub-pass (sections 18–23) | ~33 |
+| **Total** | **~195** |

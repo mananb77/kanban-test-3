@@ -610,6 +610,163 @@ FETCH2_COUNT=$(jq -r '.options[0].vote_count' "$TMPFILE")
 assert_eq    "17c: repeated GET returns same vote_count"      "$FETCH1_COUNT" "$FETCH2_COUNT"
 
 # ────────────────────────────────────────────────────────────────
+# 18. ADDITIONAL INPUT EDGE CASES
+# ────────────────────────────────────────────────────────────────
+echo "── 18. Additional Input Edge Cases ──────────────────────────"
+
+# 18a. null question → 400 (falsy check: !null is true)
+STATUS=$(http_post "$BASE_URL/api/polls" '{"question":null,"options":["A","B"]}')
+assert_eq    "18a: 400 when question is null"                  "400" "$STATUS"
+assert_json  "18a: error body has error field"                 '.error | type == "string"'
+
+# 18b. boolean false question → 400 (falsy check: !false is true)
+STATUS=$(http_post "$BASE_URL/api/polls" '{"question":false,"options":["A","B"]}')
+assert_eq    "18b: 400 when question is boolean false"         "400" "$STATUS"
+
+# 18c. Very large out-of-range optionIndex → 400
+STATUS=$(http_post "$BASE_URL/api/polls" '{"question":"Big index?","options":["A","B"]}')
+assert_eq    "18c setup: create poll for large index test"     "201" "$STATUS"
+BIG_IDX_ID=$(jq -r .id "$TMPFILE")
+STATUS=$(http_post "$BASE_URL/api/polls/$BIG_IDX_ID/vote" '{"optionIndex":1000000}')
+assert_eq    "18c: 400 on very large out-of-range optionIndex" "400" "$STATUS"
+
+# 18d. optionIndex exactly equal to options.length (off-by-one) → 400
+STATUS=$(http_post "$BASE_URL/api/polls/$BIG_IDX_ID/vote" '{"optionIndex":2}')
+assert_eq    "18d: 400 on optionIndex == options.length (exclusive upper bound)" "400" "$STATUS"
+
+# 18e. Question containing only newlines and tabs → 400 (trims to empty string)
+STATUS=$(http_post "$BASE_URL/api/polls" '{"question":"\n\t\n","options":["A","B"]}')
+assert_eq    "18e: 400 on newline/tab-only question"           "400" "$STATUS"
+
+# 18f. options array containing numeric zero (falsy) → 400
+# !0 is truthy so the server's `!o` check catches it before calling .trim()
+STATUS=$(http_post "$BASE_URL/api/polls" '{"question":"Zero opt?","options":["A",0]}')
+assert_eq    "18f: 400 when options array contains numeric zero" "400" "$STATUS"
+
+# ────────────────────────────────────────────────────────────────
+# 19. HEALTH CHECK ENDPOINT
+# ────────────────────────────────────────────────────────────────
+echo "── 19. Health Check Endpoint ────────────────────────────────"
+
+# Per TDD §9.1: GET /api/polls/healthz → 404 is the documented health-check
+# mechanism. The string "healthz" is not a valid poll UUID so the server
+# returns 404, which confirms the process is running and the DB is reachable.
+STATUS=$(http_get "$BASE_URL/api/polls/healthz")
+assert_eq    "19a: GET /api/polls/healthz returns 404 (server up indicator)" "404" "$STATUS"
+assert_json  "19a: healthz 404 response has error field"       '.error | type == "string"'
+
+# A second well-known sentinel confirms the same behaviour is not path-specific.
+STATUS=$(http_get "$BASE_URL/api/polls/ping")
+assert_eq    "19b: GET /api/polls/ping returns 404 (not a poll)" "404" "$STATUS"
+
+# ────────────────────────────────────────────────────────────────
+# 20. TIMESTAMP RANGE VALIDATION
+# ────────────────────────────────────────────────────────────────
+echo "── 20. Timestamp Range Validation ───────────────────────────"
+
+STATUS=$(http_post "$BASE_URL/api/polls" '{"question":"TS check?","options":["Now","Later"]}')
+assert_eq    "20a: create poll for timestamp validation"        "201" "$STATUS"
+CREATED_TS=$(jq -r .created_at "$TMPFILE")
+NOW_TS=$(date +%s)
+
+# Allow ±60 seconds to tolerate any minor clock skew between process and host
+TS_DIFF=$(( NOW_TS - CREATED_TS ))
+if [ "$TS_DIFF" -ge -60 ] && [ "$TS_DIFF" -le 60 ]; then
+  pass "20b: created_at is within 60s of current Unix time"
+else
+  fail "20b: created_at not within 60s of now  (diff=${TS_DIFF}s, created=${CREATED_TS}, now=${NOW_TS})"
+fi
+
+# created_at must be a plausible Unix epoch second (post Jan-2024, pre year 2100)
+if [ "$CREATED_TS" -gt 1700000000 ] && [ "$CREATED_TS" -lt 4102444800 ]; then
+  pass "20c: created_at is a plausible Unix epoch timestamp"
+else
+  fail "20c: created_at outside plausible range  (value=${CREATED_TS})"
+fi
+
+# GET response preserves the original created_at — verify it is unchanged
+TS_POLL_ID=$(jq -r .id "$TMPFILE")
+STATUS=$(http_get "$BASE_URL/api/polls/$TS_POLL_ID")
+assert_eq    "20d: GET returns 200 for timestamp poll"          "200" "$STATUS"
+assert_json  "20d: GET created_at matches POST created_at"      ".created_at == $CREATED_TS"
+
+# ────────────────────────────────────────────────────────────────
+# 21. VOTE RESPONSE COMPLETENESS
+# ────────────────────────────────────────────────────────────────
+echo "── 21. Vote Response Completeness ───────────────────────────"
+
+# 21a. Voting on a 6-option poll → response contains all 6 options
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  '{"question":"All six?","options":["A","B","C","D","E","F"]}')
+assert_eq    "21a setup: create 6-option poll"                  "201" "$STATUS"
+VCOMP_ID=$(jq -r .id "$TMPFILE")
+
+STATUS=$(http_post "$BASE_URL/api/polls/$VCOMP_ID/vote" '{"optionIndex":0}')
+assert_eq    "21a: vote on 6-option poll returns 200"           "200" "$STATUS"
+assert_json  "21a: vote response includes all 6 options"        '.options | length == 6'
+assert_json  "21a: options ordered by id ascending"             '.options[0].id < .options[5].id'
+assert_json  "21a: only voted option (0) has vote_count > 0"   '.options[0].vote_count == 1'
+assert_json  "21a: unvoted options still have vote_count == 0"  '[.options[1:][].vote_count] | all(. == 0)'
+
+# 21b. Total votes across all options equals 1 after a single vote
+assert_json  "21b: sum of all vote_counts equals 1 after one vote" '[.options[].vote_count] | add == 1'
+
+# 21c. Voting on a 3-option poll → response contains exactly 3 options
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  '{"question":"Three resp?","options":["X","Y","Z"]}')
+assert_eq    "21c setup: create 3-option poll"                  "201" "$STATUS"
+VCOMP3_ID=$(jq -r .id "$TMPFILE")
+
+STATUS=$(http_post "$BASE_URL/api/polls/$VCOMP3_ID/vote" '{"optionIndex":1}')
+assert_eq    "21c: vote returns 200"                            "200" "$STATUS"
+assert_json  "21c: vote response for 3-option poll has 3 options" '.options | length == 3'
+assert_json  "21c: voted option (1) has vote_count == 1"        '.options[1].vote_count == 1'
+assert_json  "21c: unvoted options (0, 2) have vote_count == 0" '(.options[0].vote_count == 0) and (.options[2].vote_count == 0)'
+
+# ────────────────────────────────────────────────────────────────
+# 22. EXTRA FIELDS IN REQUEST BODY IGNORED
+# ────────────────────────────────────────────────────────────────
+echo "── 22. Extra Request Fields Ignored ─────────────────────────"
+
+# 22a. POST /api/polls with unknown extra fields → 201 (fields silently ignored)
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  '{"question":"Extra fields?","options":["Yes","No"],"extra":"ignored","foo":123}')
+assert_eq    "22a: 201 on poll creation with extra fields"      "201" "$STATUS"
+assert_json  "22a: question preserved correctly"                '.question == "Extra fields?"'
+assert_json  "22a: 2 options created"                           '.options | length == 2'
+
+# 22b. POST /api/polls/:id/vote with extra unknown fields → 200 (fields ignored)
+EXTRA_POLL_ID=$(jq -r .id "$TMPFILE")
+STATUS=$(http_post "$BASE_URL/api/polls/$EXTRA_POLL_ID/vote" \
+  '{"optionIndex":0,"userId":"anon","timestamp":1234567,"extra":true}')
+assert_eq    "22b: 200 on vote with extra fields"               "200" "$STATUS"
+assert_json  "22b: options[0].vote_count incremented correctly" '.options[0].vote_count == 1'
+
+# ────────────────────────────────────────────────────────────────
+# 23. HIGH VOTE COUNT ACCUMULATION
+# ────────────────────────────────────────────────────────────────
+echo "── 23. High Vote Count Accumulation ─────────────────────────"
+
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  '{"question":"Scale test?","options":["Alpha","Beta"]}')
+assert_eq    "23 setup: create scale-test poll"                 "201" "$STATUS"
+SCALE_ID=$(jq -r .id "$TMPFILE")
+
+# 20 votes on option 0, 10 on option 1
+for _i in $(seq 1 20); do
+  http_post "$BASE_URL/api/polls/$SCALE_ID/vote" '{"optionIndex":0}' > /dev/null
+done
+for _i in $(seq 1 10); do
+  http_post "$BASE_URL/api/polls/$SCALE_ID/vote" '{"optionIndex":1}' > /dev/null
+done
+
+STATUS=$(http_get "$BASE_URL/api/polls/$SCALE_ID")
+assert_eq    "23a: 200 fetching after 30 total votes"           "200" "$STATUS"
+assert_json  "23a: options[0].vote_count == 20"                 '.options[0].vote_count == 20'
+assert_json  "23a: options[1].vote_count == 10"                 '.options[1].vote_count == 10'
+assert_json  "23a: total votes sum to 30"                       '(.options[0].vote_count + .options[1].vote_count) == 30'
+
+# ────────────────────────────────────────────────────────────────
 # Summary
 # ────────────────────────────────────────────────────────────────
 echo ""
