@@ -767,6 +767,156 @@ assert_json  "23a: options[1].vote_count == 10"                 '.options[1].vot
 assert_json  "23a: total votes sum to 30"                       '(.options[0].vote_count + .options[1].vote_count) == 30'
 
 # ────────────────────────────────────────────────────────────────
+# 24. HTTP METHOD VALIDATION
+# ────────────────────────────────────────────────────────────────
+echo "── 24. HTTP Method Validation ───────────────────────────────"
+
+# 24a. PUT /api/polls → 404 (no PUT handler; not a supported method)
+STATUS=$(curl -s -o "$TMPFILE" -w "%{http_code}" \
+  -X PUT -H 'Content-Type: application/json' \
+  -d '{"question":"Q?","options":["A","B"]}' \
+  "$BASE_URL/api/polls")
+assert_eq "24a: PUT /api/polls returns 404 (method not allowed)" "404" "$STATUS"
+
+# 24b. DELETE /api/polls/:id → 404 (no DELETE handler)
+STATUS=$(curl -s -o "$TMPFILE" -w "%{http_code}" \
+  -X DELETE "$BASE_URL/api/polls/$POLL_ID")
+assert_eq "24b: DELETE /api/polls/:id returns 404" "404" "$STATUS"
+
+# 24c. PATCH /api/polls/:id/vote → 404 (only POST /:id/vote is registered)
+STATUS=$(curl -s -o "$TMPFILE" -w "%{http_code}" \
+  -X PATCH -H 'Content-Type: application/json' \
+  -d '{"optionIndex":0}' \
+  "$BASE_URL/api/polls/$POLL_ID/vote")
+assert_eq "24c: PATCH /api/polls/:id/vote returns 404" "404" "$STATUS"
+
+# 24d. GET /api/polls (no ID segment) → 200 SPA fallback (no list endpoint exists)
+# The router only handles GET /:id (requires a segment), so /api/polls with no
+# segment falls through to the catch-all app.get('*') which serves the React SPA.
+STATUS=$(http_get "$BASE_URL/api/polls")
+assert_eq "24d: GET /api/polls returns 200 (SPA fallback, no list endpoint)" "200" "$STATUS"
+if grep -q '<div id="root">' "$TMPFILE" 2>/dev/null; then
+  pass "24d: GET /api/polls fallback body contains React root element"
+else
+  fail "24d: GET /api/polls fallback missing <div id=\"root\">"
+fi
+
+# 24e. POST /api/polls/:id without /vote suffix → 404
+# router.post('/:id/vote') only matches the /vote sub-path; bare /:id has no POST handler.
+STATUS=$(curl -s -o "$TMPFILE" -w "%{http_code}" \
+  -X POST -H 'Content-Type: application/json' \
+  -d '{"optionIndex":0}' \
+  "$BASE_URL/api/polls/$POLL_ID")
+assert_eq "24e: POST /api/polls/:id (no /vote) returns 404" "404" "$STATUS"
+
+# ────────────────────────────────────────────────────────────────
+# 25. NON-OBJECT JSON REQUEST BODIES
+# ────────────────────────────────────────────────────────────────
+echo "── 25. Non-object JSON Request Bodies ───────────────────────"
+
+# Express parses valid JSON of any type; destructuring non-objects yields
+# undefined for named keys, triggering the server's "Question is required" check.
+
+# 25a. POST /api/polls with JSON number body → 400
+STATUS=$(http_post "$BASE_URL/api/polls" '42')
+assert_eq    "25a: 400 when POST /api/polls body is a JSON number" "400" "$STATUS"
+assert_json  "25a: error field present in response"                '.error | type == "string"'
+
+# 25b. POST /api/polls with JSON string body → 400
+STATUS=$(http_post "$BASE_URL/api/polls" '"just a string"')
+assert_eq    "25b: 400 when POST /api/polls body is a JSON string" "400" "$STATUS"
+
+# 25c. POST /api/polls with JSON array body → 400
+# Array destructuring by name yields undefined for missing keys.
+STATUS=$(http_post "$BASE_URL/api/polls" '[{"question":"Q?","options":["A","B"]}]')
+assert_eq    "25c: 400 when POST /api/polls body is a JSON array"  "400" "$STATUS"
+
+# 25d. POST /api/polls/:id/vote with JSON number body → 400
+# Number.isInteger(undefined) is false, triggering validation.
+STATUS=$(http_post "$BASE_URL/api/polls/$POLL_ID/vote" '42')
+assert_eq    "25d: 400 when vote body is a JSON number"            "400" "$STATUS"
+assert_json  "25d: error field present in vote error response"     '.error | type == "string"'
+
+# 25e. POST /api/polls/:id/vote with JSON string body → 400
+STATUS=$(http_post "$BASE_URL/api/polls/$POLL_ID/vote" '"string"')
+assert_eq    "25e: 400 when vote body is a JSON string"            "400" "$STATUS"
+
+# 25f. POST /api/polls/:id/vote with JSON array body → 400
+STATUS=$(http_post "$BASE_URL/api/polls/$POLL_ID/vote" '[{"optionIndex":0}]')
+assert_eq    "25f: 400 when vote body is a JSON array"             "400" "$STATUS"
+
+# ────────────────────────────────────────────────────────────────
+# 26. LONG INPUT STRINGS
+# ────────────────────────────────────────────────────────────────
+echo "── 26. Long Input Strings ────────────────────────────────────"
+
+# SQLite TEXT columns have no practical size limit; the server imposes none either.
+LONGSTR=$(printf 'a%.0s' {1..500})
+
+# 26a. 500-character question → 201
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  "{\"question\":\"$LONGSTR\",\"options\":[\"Opt A\",\"Opt B\"]}")
+assert_eq    "26a: 201 on poll with 500-char question"             "201" "$STATUS"
+assert_json  "26a: long question stored (non-empty)"               '.question | length > 0'
+LONG_POLL_ID=$(jq -r .id "$TMPFILE")
+
+# 26b. 500-character option texts → 201
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  "{\"question\":\"Short Q?\",\"options\":[\"$LONGSTR\",\"$LONGSTR\"]}")
+assert_eq    "26b: 201 on poll with 500-char option texts"         "201" "$STATUS"
+assert_json  "26b: 2 options stored"                               '.options | length == 2'
+assert_json  "26b: options[0].text length is preserved"            '.options[0].text | length > 400'
+
+# 26c. Fetch poll with long question → full content preserved
+STATUS=$(http_get "$BASE_URL/api/polls/$LONG_POLL_ID")
+assert_eq    "26c: 200 fetching poll with long question"            "200" "$STATUS"
+assert_json  "26c: question length is 500 chars after round-trip"  '.question | length == 500'
+
+# 26d. Vote on poll with long question → 200, vote registered
+STATUS=$(http_post "$BASE_URL/api/polls/$LONG_POLL_ID/vote" '{"optionIndex":0}')
+assert_eq    "26d: 200 voting on poll with long question"           "200" "$STATUS"
+assert_json  "26d: vote registered correctly"                      '.options[0].vote_count == 1'
+
+# ────────────────────────────────────────────────────────────────
+# 27. COMPLETE VOTING CYCLE — every option voted once
+# ────────────────────────────────────────────────────────────────
+echo "── 27. Complete Voting Cycle ─────────────────────────────────"
+
+# Create a 4-option poll, vote on each option exactly once, then verify
+# the total equals the option count and each has exactly 1 vote.
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  '{"question":"Full cycle?","options":["Alpha","Beta","Gamma","Delta"]}')
+assert_eq    "27 setup: create 4-option poll"                      "201" "$STATUS"
+CYCLE_ID=$(jq -r .id "$TMPFILE")
+
+STATUS=$(http_post "$BASE_URL/api/polls/$CYCLE_ID/vote" '{"optionIndex":0}')
+assert_eq    "27a: 200 on vote for option 0"                       "200" "$STATUS"
+assert_json  "27a: options[0].vote_count == 1"                     '.options[0].vote_count == 1'
+assert_json  "27a: running total == 1"                             '[.options[].vote_count] | add == 1'
+
+STATUS=$(http_post "$BASE_URL/api/polls/$CYCLE_ID/vote" '{"optionIndex":1}')
+assert_eq    "27b: 200 on vote for option 1"                       "200" "$STATUS"
+assert_json  "27b: options[1].vote_count == 1"                     '.options[1].vote_count == 1'
+assert_json  "27b: running total == 2"                             '[.options[].vote_count] | add == 2'
+
+STATUS=$(http_post "$BASE_URL/api/polls/$CYCLE_ID/vote" '{"optionIndex":2}')
+assert_eq    "27c: 200 on vote for option 2"                       "200" "$STATUS"
+assert_json  "27c: options[2].vote_count == 1"                     '.options[2].vote_count == 1'
+assert_json  "27c: running total == 3"                             '[.options[].vote_count] | add == 3'
+
+STATUS=$(http_post "$BASE_URL/api/polls/$CYCLE_ID/vote" '{"optionIndex":3}')
+assert_eq    "27d: 200 on vote for option 3 (last)"                "200" "$STATUS"
+assert_json  "27d: options[3].vote_count == 1"                     '.options[3].vote_count == 1'
+assert_json  "27d: final total == 4 (one per option)"              '[.options[].vote_count] | add == 4'
+assert_json  "27d: every option has exactly 1 vote"                '[.options[].vote_count] | all(. == 1)'
+
+# Verify final state via GET matches vote response
+STATUS=$(http_get "$BASE_URL/api/polls/$CYCLE_ID")
+assert_eq    "27e: 200 fetching after full cycle"                  "200" "$STATUS"
+assert_json  "27e: GET total votes == 4"                           '[.options[].vote_count] | add == 4'
+assert_json  "27e: all 4 options have exactly 1 vote each via GET" '[.options[].vote_count] | all(. == 1)'
+
+# ────────────────────────────────────────────────────────────────
 # Summary
 # ────────────────────────────────────────────────────────────────
 echo ""
