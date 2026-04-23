@@ -1,0 +1,221 @@
+{
+  "review_iteration": 2,
+  "issue_number": 1,
+  "repository": "mananb77/kanban-test-3",
+  "review_date": "2026-04-23",
+  "review_mode": "feature_bug_fix",
+  "review_focus": "test_quality",
+  "reviewer": "qa-reviewer",
+
+  "test_suite_summary": {
+    "total_test_files": 2,
+    "test_files": [
+      {
+        "path": "tests/api.test.mjs",
+        "framework": "node:test",
+        "test_count": 52,
+        "describe_blocks": 12,
+        "passing": 48,
+        "failing": 4,
+        "quality_score": 83,
+        "lines": 720
+      },
+      {
+        "path": "tests/smoke.sh",
+        "framework": "bash+curl+jq",
+        "sections": 27,
+        "assertion_count": 246,
+        "passing": 242,
+        "failing": 4,
+        "quality_score": 86,
+        "lines": 933
+      }
+    ],
+    "combined_pass_rate": 0.984,
+    "combined_failing": 4,
+    "last_run_status": "FAILED"
+  },
+
+  "failing_tests": [
+    {
+      "id": "25a",
+      "description": "400 when POST /api/polls body is a JSON number",
+      "actual_status": 500,
+      "expected_status": 400,
+      "root_cause": "express.json() strict mode passes 400-level error to next(err); error handler ignores err.status and always returns 500",
+      "fix_file": "server/index.js",
+      "fix_type": "server_bug"
+    },
+    {
+      "id": "25b",
+      "description": "400 when POST /api/polls body is a JSON string",
+      "actual_status": 500,
+      "expected_status": 400,
+      "root_cause": "Same as 25a",
+      "fix_file": "server/index.js",
+      "fix_type": "server_bug"
+    },
+    {
+      "id": "25d",
+      "description": "400 when vote body is a JSON number",
+      "actual_status": 500,
+      "expected_status": 400,
+      "root_cause": "Same as 25a",
+      "fix_file": "server/index.js",
+      "fix_type": "server_bug"
+    },
+    {
+      "id": "25e",
+      "description": "400 when vote body is a JSON string",
+      "actual_status": 500,
+      "expected_status": 400,
+      "root_cause": "Same as 25a",
+      "fix_file": "server/index.js",
+      "fix_type": "server_bug"
+    }
+  ],
+
+  "server_bug": {
+    "file": "server/index.js",
+    "lines": "19-22",
+    "description": "Error handler ignores err.status; express.json() strict mode sends 400-level errors via next(err) for non-object/non-array JSON bodies (numbers and strings), but handler always returns 500",
+    "severity": "HIGH",
+    "fix": {
+      "description": "Change error handler to forward err.status when present",
+      "before": "res.status(500).json({ error: 'Internal server error' })",
+      "after": "const status = err.status || err.statusCode || 500;\nres.status(status).json({ error: err.message || 'Internal server error' });"
+    }
+  },
+
+  "quality_scores": {
+    "api_test_mjs": 83,
+    "smoke_sh": 86,
+    "overall_test_quality": 85
+  },
+
+  "gaps": {
+    "total": 8,
+    "critical": 1,
+    "high": 0,
+    "medium": 3,
+    "low": 4,
+    "items": [
+      {
+        "id": "GAP-SERVER-001",
+        "priority": "CRITICAL",
+        "type": "server_bug",
+        "description": "Error handler ignores err.status; 4 tests fail with 500 instead of 400",
+        "fix_required": true
+      },
+      {
+        "id": "GAP-FR5-001",
+        "priority": "MEDIUM",
+        "type": "missing_test",
+        "description": "api.test.mjs missing test for POST /api/polls with missing question key",
+        "smoke_coverage": true,
+        "api_test_mjs_coverage": false
+      },
+      {
+        "id": "GAP-FR5-002",
+        "priority": "MEDIUM",
+        "type": "missing_test",
+        "description": "api.test.mjs missing test for POST /api/polls with missing options key",
+        "smoke_coverage": true,
+        "api_test_mjs_coverage": false
+      },
+      {
+        "id": "GAP-FR5-003",
+        "priority": "MEDIUM",
+        "type": "missing_test",
+        "description": "api.test.mjs missing test for options as non-array types (string, object)",
+        "smoke_coverage": true,
+        "api_test_mjs_coverage": false
+      },
+      {
+        "id": "GAP-FR5-004",
+        "priority": "LOW",
+        "type": "missing_test",
+        "description": "No test for question as integer type",
+        "smoke_coverage": false,
+        "api_test_mjs_coverage": false
+      },
+      {
+        "id": "GAP-FR5-005",
+        "priority": "LOW",
+        "type": "missing_test",
+        "description": "No explicit empty string question test",
+        "smoke_coverage": false,
+        "api_test_mjs_coverage": false
+      },
+      {
+        "id": "GAP-NFR1-001",
+        "priority": "LOW",
+        "type": "missing_test",
+        "description": "No performance timing assertions",
+        "note": "TDD specifies manual-only testing; low priority"
+      },
+      {
+        "id": "GAP-NFR5-001",
+        "priority": "LOW",
+        "type": "missing_test",
+        "description": "No XSS/CSP header verification",
+        "note": "Out of scope per TDD"
+      }
+    ]
+  },
+
+  "coverage_estimates": {
+    "server_routes_polls_js": "~95%",
+    "server_index_js": "~60%",
+    "server_db_database_js": "~40%",
+    "client_frontend": "0% (by design per TDD §14)"
+  },
+
+  "edge_cases": {
+    "total_identified": 74,
+    "covered_passing": 65,
+    "covered_failing": 4,
+    "not_covered_required": 3,
+    "not_covered_optional": 6
+  },
+
+  "iteration3_primary_tasks": [
+    {
+      "priority": 1,
+      "task": "Fix server/index.js error handler to forward err.status",
+      "expected_tests_fixed": 4
+    },
+    {
+      "priority": 2,
+      "task": "Add missing question/options key tests to api.test.mjs",
+      "expected_tests_added": 3
+    },
+    {
+      "priority": 3,
+      "task": "Add options as non-array type tests to api.test.mjs",
+      "expected_tests_added": 1
+    },
+    {
+      "priority": 4,
+      "task": "Verify full test suite passes (246/246 smoke.sh + 57/57 api.test.mjs)",
+      "expected_tests_added": 0
+    }
+  ],
+
+  "target_state_after_iteration3": {
+    "api_test_mjs_total": 57,
+    "api_test_mjs_passing": 57,
+    "smoke_sh_passing": 246,
+    "combined_pass_rate": 1.0,
+    "server_bug_fixed": true
+  },
+
+  "artifacts": [
+    "TEST_QUALITY_REPORT.md",
+    "TEST_GAP_ANALYSIS.md",
+    "COVERAGE_GAP_ANALYSIS.md",
+    "EDGE_CASE_REVIEW.md",
+    "ITERATION-3-GUIDANCE.md",
+    "metadata.json"
+  ]
+}
