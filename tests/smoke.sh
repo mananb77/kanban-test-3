@@ -406,6 +406,210 @@ assert_contains "11e: 404 error response returns application/json" \
   "application/json" "$CT"
 
 # ────────────────────────────────────────────────────────────────
+# 12. NON-STANDARD AND INJECTION POLL IDs
+# ────────────────────────────────────────────────────────────────
+echo "── 12. Non-standard Poll IDs ────────────────────────────────"
+
+# 12a. Arbitrary non-UUID alphanumeric string → 404
+STATUS=$(http_get "$BASE_URL/api/polls/not-a-uuid-at-all")
+assert_eq    "12a: 404 for arbitrary non-UUID poll id"        "404" "$STATUS"
+assert_json  "12a: 404 body has error field"                  '.error | type == "string"'
+
+# 12b. Numeric string as poll id → 404
+STATUS=$(http_get "$BASE_URL/api/polls/12345")
+assert_eq    "12b: 404 for numeric string poll id"            "404" "$STATUS"
+
+# 12c. URL-encoded SQL injection attempt in poll id → 404 (parameterized query prevents injection)
+STATUS=$(http_get "$BASE_URL/api/polls/1%27%20OR%20%271%27%3D%271")
+assert_eq    "12c: 404 for URL-encoded SQL injection poll id" "404" "$STATUS"
+
+# 12d. Vote on non-existent non-UUID poll id → 404
+STATUS=$(http_post "$BASE_URL/api/polls/definitely-not-a-poll/vote" '{"optionIndex":0}')
+assert_eq    "12d: 404 on vote for non-UUID poll id"          "404" "$STATUS"
+assert_json  "12d: 404 vote response has error field"         '.error | type == "string"'
+
+# ────────────────────────────────────────────────────────────────
+# 13. UNICODE AND SPECIAL CHARACTER CONTENT
+# ────────────────────────────────────────────────────────────────
+echo "── 13. Unicode and Special Characters ───────────────────────"
+
+# 13a. Create poll with emoji in question and options
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  '{"question":"Favourite emoji? 🎉","options":["🎉 Party","🚀 Rocket","❤️ Heart"]}')
+assert_eq    "13a: 201 on unicode/emoji question and options" "201" "$STATUS"
+assert_json  "13a: 3 options stored for emoji poll"           '.options | length == 3'
+EMOJI_POLL_ID=$(jq -r .id "$TMPFILE")
+
+# 13b. Retrieve unicode poll — content preserved faithfully
+STATUS=$(http_get "$BASE_URL/api/polls/$EMOJI_POLL_ID")
+assert_eq    "13b: 200 on fetch of unicode poll"              "200" "$STATUS"
+assert_json  "13b: options count preserved"                   '.options | length == 3'
+assert_json  "13b: options have non-empty text"               '.options | map(.text | length > 0) | all'
+
+# 13c. Unicode Latin-extended and accented characters
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  '{"question":"Café or thé?","options":["café","thé"]}')
+assert_eq    "13c: 201 on accented-character question"        "201" "$STATUS"
+assert_json  "13c: question stored with unicode chars"        '.question | length > 0'
+assert_json  "13c: 2 options with unicode text"               '.options | length == 2'
+
+# 13d. HTML special characters stored verbatim (not escaped by the API)
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  '{"question":"<b>Bold</b> or plain?","options":["<b>Bold</b>","Plain &amp; simple"]}')
+assert_eq    "13d: 201 on HTML-tagged question"               "201" "$STATUS"
+assert_json  "13d: question stored verbatim with HTML tags"   '.question == "<b>Bold</b> or plain?"'
+assert_json  "13d: option stored verbatim with HTML entity"   '.options[1].text == "Plain &amp; simple"'
+
+# ────────────────────────────────────────────────────────────────
+# 14. DUPLICATE AND BOUNDARY CONTENT
+# ────────────────────────────────────────────────────────────────
+echo "── 14. Duplicate and Boundary Content ───────────────────────"
+
+# 14a. Two polls with identical question text → both succeed with different UUIDs
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  '{"question":"Same question?","options":["A","B"]}')
+assert_eq    "14a: 201 creating first poll (same question)"   "201" "$STATUS"
+DUP_ID_1=$(jq -r .id "$TMPFILE")
+
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  '{"question":"Same question?","options":["A","B"]}')
+assert_eq    "14a: 201 creating second poll (same question)"  "201" "$STATUS"
+DUP_ID_2=$(jq -r .id "$TMPFILE")
+
+if [ "$DUP_ID_1" != "$DUP_ID_2" ]; then
+  pass "14a: duplicate-question polls have distinct UUIDs"
+else
+  fail "14a: polls with same question got identical IDs"
+fi
+
+# 14b. Poll with two identical option texts → 201 (no dedup constraint)
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  '{"question":"Duplicates ok?","options":["Same","Same"]}')
+assert_eq    "14b: 201 on poll with duplicate option texts"   "201" "$STATUS"
+assert_json  "14b: both duplicate options stored"             '.options | length == 2'
+assert_json  "14b: duplicate option texts equal"              '.options[0].text == .options[1].text'
+
+# 14c. Minimum-length (1 character) question → 201
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  '{"question":"?","options":["Y","N"]}')
+assert_eq    "14c: 201 on single-character question"          "201" "$STATUS"
+assert_json  "14c: single-char question preserved"            '.question == "?"'
+
+# 14d. Exactly 0 optionIndex on a fresh 2-option poll → boundary 200
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  '{"question":"Boundary?","options":["Zero","One"]}')
+assert_eq    "14d setup: create boundary poll"                "201" "$STATUS"
+BOUND_ID=$(jq -r .id "$TMPFILE")
+STATUS=$(http_post "$BASE_URL/api/polls/$BOUND_ID/vote" '{"optionIndex":0}')
+assert_eq    "14d: 200 on optionIndex exactly 0"              "200" "$STATUS"
+assert_json  "14d: options[0].vote_count == 1 (boundary vote)" '.options[0].vote_count == 1'
+assert_json  "14d: options[1].vote_count == 0 (untouched)"   '.options[1].vote_count == 0'
+
+# ────────────────────────────────────────────────────────────────
+# 15. VOTE COUNT ACCUMULATION STRESS
+# ────────────────────────────────────────────────────────────────
+echo "── 15. Vote Count Accumulation ──────────────────────────────"
+
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  '{"question":"High count?","options":["Alpha","Beta"]}')
+assert_eq    "15 setup: create accumulation poll"             "201" "$STATUS"
+ACCUM_ID=$(jq -r .id "$TMPFILE")
+
+# Cast 5 votes on option 0
+for _i in 1 2 3 4 5; do
+  http_post "$BASE_URL/api/polls/$ACCUM_ID/vote" '{"optionIndex":0}' > /dev/null
+done
+
+STATUS=$(http_get "$BASE_URL/api/polls/$ACCUM_ID")
+assert_eq    "15a: 200 fetching after 5 votes on option 0"   "200" "$STATUS"
+assert_json  "15a: options[0].vote_count == 5"               '.options[0].vote_count == 5'
+assert_json  "15a: options[1].vote_count == 0 (untouched)"   '.options[1].vote_count == 0'
+
+# Cast 3 more votes on option 1
+for _i in 1 2 3; do
+  http_post "$BASE_URL/api/polls/$ACCUM_ID/vote" '{"optionIndex":1}' > /dev/null
+done
+
+STATUS=$(http_get "$BASE_URL/api/polls/$ACCUM_ID")
+assert_eq    "15b: 200 fetching after 3 votes on option 1"   "200" "$STATUS"
+assert_json  "15b: options[0].vote_count still 5"            '.options[0].vote_count == 5'
+assert_json  "15b: options[1].vote_count == 3"               '.options[1].vote_count == 3'
+assert_json  "15b: total votes across options sums to 8"     '(.options[0].vote_count + .options[1].vote_count) == 8'
+
+# ────────────────────────────────────────────────────────────────
+# 16. COMPLETE RESPONSE SCHEMA — ALL THREE ENDPOINTS
+# ────────────────────────────────────────────────────────────────
+echo "── 16. Complete Response Schema (All Endpoints) ─────────────"
+
+# 16a. POST /api/polls — all top-level fields and their types
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  '{"question":"Schema check?","options":["X","Y","Z"]}')
+assert_eq    "16a: 201 on schema-check poll"                  "201" "$STATUS"
+SCHEMA_ID=$(jq -r .id "$TMPFILE")
+assert_json  "16a: POST response id is string"                '.id | type == "string"'
+assert_json  "16a: POST response question is string"          '.question | type == "string"'
+assert_json  "16a: POST response created_at is number"        '.created_at | type == "number"'
+assert_json  "16a: POST response options is array"            '.options | type == "array"'
+assert_json  "16a: POST response has exactly 4 top-level keys" '. | keys | length == 4'
+
+# 16b. Each option object has all 4 required fields
+assert_json  "16b: option has id field"                       '.options[0] | has("id")'
+assert_json  "16b: option has poll_id field"                  '.options[0] | has("poll_id")'
+assert_json  "16b: option has text field"                     '.options[0] | has("text")'
+assert_json  "16b: option has vote_count field"               '.options[0] | has("vote_count")'
+assert_json  "16b: option object has exactly 4 fields"        '.options[0] | keys | length == 4'
+
+# 16c. GET /api/polls/:id — all top-level fields present
+STATUS=$(http_get "$BASE_URL/api/polls/$SCHEMA_ID")
+assert_eq    "16c: GET returns 200 for schema poll"           "200" "$STATUS"
+assert_json  "16c: GET response id is string"                 '.id | type == "string"'
+assert_json  "16c: GET response question is string"           '.question | type == "string"'
+assert_json  "16c: GET response created_at is number"         '.created_at | type == "number"'
+assert_json  "16c: GET response options is array"             '.options | type == "array"'
+
+# 16d. POST /api/polls/:id/vote — all fields including created_at (often missed)
+STATUS=$(http_post "$BASE_URL/api/polls/$SCHEMA_ID/vote" '{"optionIndex":0}')
+assert_eq    "16d: vote returns 200"                          "200" "$STATUS"
+assert_json  "16d: vote response id is string"                '.id | type == "string"'
+assert_json  "16d: vote response question is string"          '.question | type == "string"'
+assert_json  "16d: vote response created_at is number"        '.created_at | type == "number"'
+assert_json  "16d: vote response options is array"            '.options | type == "array"'
+assert_json  "16d: vote response id matches poll id"          ".id == \"$SCHEMA_ID\""
+
+# ────────────────────────────────────────────────────────────────
+# 17. RESPONSE CONSISTENCY — GET vs CREATE vs VOTE agreement
+# ────────────────────────────────────────────────────────────────
+echo "── 17. Response Consistency ─────────────────────────────────"
+
+STATUS=$(http_post "$BASE_URL/api/polls" \
+  '{"question":"Consistency?","options":["P","Q"]}')
+assert_eq    "17 setup: create consistency poll"              "201" "$STATUS"
+CONS_ID=$(jq -r .id "$TMPFILE")
+CONS_CREATED_AT=$(jq -r .created_at "$TMPFILE")
+CONS_OPT0_ID=$(jq -r '.options[0].id' "$TMPFILE")
+CONS_OPT1_ID=$(jq -r '.options[1].id' "$TMPFILE")
+
+# 17a. GET response agrees with CREATE response on stable fields
+STATUS=$(http_get "$BASE_URL/api/polls/$CONS_ID")
+assert_eq    "17a: GET returns 200"                           "200" "$STATUS"
+assert_json  "17a: GET created_at matches original create"    ".created_at == $CONS_CREATED_AT"
+assert_json  "17a: GET options[0].id matches create"          ".options[0].id == $CONS_OPT0_ID"
+assert_json  "17a: GET options[1].id matches create"          ".options[1].id == $CONS_OPT1_ID"
+
+# 17b. VOTE response agrees with CREATE response on stable fields
+STATUS=$(http_post "$BASE_URL/api/polls/$CONS_ID/vote" '{"optionIndex":0}')
+assert_eq    "17b: vote returns 200"                          "200" "$STATUS"
+assert_json  "17b: vote response created_at matches original" ".created_at == $CONS_CREATED_AT"
+assert_json  "17b: vote response options[0].id matches"       ".options[0].id == $CONS_OPT0_ID"
+
+# 17c. Repeated GET requests return identical, non-mutating data
+STATUS=$(http_get "$BASE_URL/api/polls/$CONS_ID")
+FETCH1_COUNT=$(jq -r '.options[0].vote_count' "$TMPFILE")
+STATUS=$(http_get "$BASE_URL/api/polls/$CONS_ID")
+FETCH2_COUNT=$(jq -r '.options[0].vote_count' "$TMPFILE")
+assert_eq    "17c: repeated GET returns same vote_count"      "$FETCH1_COUNT" "$FETCH2_COUNT"
+
+# ────────────────────────────────────────────────────────────────
 # Summary
 # ────────────────────────────────────────────────────────────────
 echo ""
