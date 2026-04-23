@@ -507,3 +507,213 @@ describe('Vote count accumulation', () => {
     }
   });
 });
+
+// ── Health check endpoint ─────────────────────────────────────────────────────
+// The Dockerfile HEALTHCHECK hits GET /api/polls/healthz — a 404 means the
+// server is running and the DB is reachable; a connection error = unhealthy.
+
+describe('Health check endpoint', () => {
+  test('GET /api/polls/healthz returns 404 — server up indicator', async () => {
+    const { status, body } = await apiGet('/api/polls/healthz');
+    assert.equal(status, 404);
+    assert.equal(typeof body.error, 'string', 'error field should be a string');
+    assert.ok(body.error.length > 0, 'error message should be non-empty');
+  });
+
+  test('GET /api/polls/ping returns 404 — health-check behaviour is path-agnostic', async () => {
+    const { status, body } = await apiGet('/api/polls/ping');
+    assert.equal(status, 404);
+    assert.equal(typeof body.error, 'string');
+  });
+});
+
+// ── HTTP method validation ────────────────────────────────────────────────────
+
+describe('HTTP method validation', () => {
+  test('PUT /api/polls returns 404 — no PUT handler registered', async () => {
+    const res = await fetch(`${BASE_URL}/api/polls`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: 'Q?', options: ['A', 'B'] }),
+    });
+    assert.equal(res.status, 404);
+  });
+
+  test('DELETE /api/polls/:id returns 404 — no DELETE handler registered', async () => {
+    const poll = await createPoll('Delete method test?', ['A', 'B']);
+    const res = await fetch(`${BASE_URL}/api/polls/${poll.id}`, { method: 'DELETE' });
+    assert.equal(res.status, 404);
+  });
+
+  test('PATCH /api/polls/:id/vote returns 404 — only POST /:id/vote is registered', async () => {
+    const poll = await createPoll('Patch method test?', ['A', 'B']);
+    const res = await fetch(`${BASE_URL}/api/polls/${poll.id}/vote`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ optionIndex: 0 }),
+    });
+    assert.equal(res.status, 404);
+  });
+
+  test('POST /api/polls/:id (without /vote suffix) returns 404', async () => {
+    const poll = await createPoll('Post no vote suffix?', ['A', 'B']);
+    const res = await fetch(`${BASE_URL}/api/polls/${poll.id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ optionIndex: 0 }),
+    });
+    assert.equal(res.status, 404);
+  });
+
+  test('GET /api/polls (no ID segment) returns 200 SPA fallback — no list endpoint exists', async () => {
+    const res = await fetch(`${BASE_URL}/api/polls`);
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    assert.ok(text.includes('<div id="root">'), 'SPA fallback should serve React root element');
+  });
+});
+
+// ── Non-object JSON request bodies ───────────────────────────────────────────
+// Express parses valid JSON of any type; destructuring non-objects yields
+// undefined for named keys, triggering server validation.
+
+describe('Non-object JSON request bodies', () => {
+  test('POST /api/polls with JSON number body returns 400', async () => {
+    const { status, body } = await apiPost('/api/polls', 42);
+    assert.equal(status, 400);
+    assert.equal(typeof body.error, 'string');
+  });
+
+  test('POST /api/polls with JSON string body returns 400', async () => {
+    const { status, body } = await apiPost('/api/polls', 'just a string');
+    assert.equal(status, 400);
+    assert.equal(typeof body.error, 'string');
+  });
+
+  test('POST /api/polls with JSON array body returns 400', async () => {
+    const { status } = await apiPost('/api/polls', [{ question: 'Q?', options: ['A', 'B'] }]);
+    assert.equal(status, 400);
+  });
+
+  test('POST /api/polls/:id/vote with JSON number body returns 400', async () => {
+    const poll = await createPoll('Body type test?', ['A', 'B']);
+    const { status, body } = await apiPost(`/api/polls/${poll.id}/vote`, 42);
+    assert.equal(status, 400);
+    assert.equal(typeof body.error, 'string');
+  });
+
+  test('POST /api/polls/:id/vote with JSON string body returns 400', async () => {
+    const poll = await createPoll('Vote body string test?', ['A', 'B']);
+    const { status } = await apiPost(`/api/polls/${poll.id}/vote`, 'string');
+    assert.equal(status, 400);
+  });
+
+  test('POST /api/polls/:id/vote with JSON array body returns 400', async () => {
+    const poll = await createPoll('Vote body array test?', ['A', 'B']);
+    const { status } = await apiPost(`/api/polls/${poll.id}/vote`, [{ optionIndex: 0 }]);
+    assert.equal(status, 400);
+  });
+});
+
+// ── Long input strings ────────────────────────────────────────────────────────
+
+describe('Long input strings', () => {
+  const LONGSTR = 'a'.repeat(500);
+
+  test('500-character question is accepted and stored (201)', async () => {
+    const { status, body } = await apiPost('/api/polls', {
+      question: LONGSTR,
+      options: ['Option A', 'Option B'],
+    });
+    assert.equal(status, 201);
+    assert.equal(body.question.length, 500, 'Long question should be stored at full length');
+  });
+
+  test('500-character option texts are accepted and stored (201)', async () => {
+    const { status, body } = await apiPost('/api/polls', {
+      question: 'Long options?',
+      options: [LONGSTR, LONGSTR],
+    });
+    assert.equal(status, 201);
+    assert.ok(body.options[0].text.length > 400, 'Long option text should be preserved');
+    assert.ok(body.options[1].text.length > 400, 'Long option text should be preserved');
+  });
+
+  test('GET round-trip preserves 500-character question exactly', async () => {
+    const { body: created } = await apiPost('/api/polls', {
+      question: LONGSTR,
+      options: ['A', 'B'],
+    });
+    const { status, body: fetched } = await apiGet(`/api/polls/${created.id}`);
+    assert.equal(status, 200);
+    assert.equal(fetched.question.length, 500, 'Question length preserved on round-trip GET');
+    assert.equal(fetched.question, LONGSTR, 'Question content preserved exactly');
+  });
+
+  test('voting on a poll with long question returns 200 and registers the vote', async () => {
+    const { body: poll } = await apiPost('/api/polls', {
+      question: LONGSTR,
+      options: ['X', 'Y'],
+    });
+    const { status, body } = await apiPost(`/api/polls/${poll.id}/vote`, { optionIndex: 0 });
+    assert.equal(status, 200);
+    assert.equal(body.options[0].vote_count, 1, 'Vote should be registered on poll with long question');
+  });
+});
+
+// ── Additional input edge cases ───────────────────────────────────────────────
+
+describe('Additional input edge cases', () => {
+  test('null question returns 400', async () => {
+    const { status, body } = await apiPost('/api/polls', { question: null, options: ['A', 'B'] });
+    assert.equal(status, 400);
+    assert.equal(typeof body.error, 'string');
+  });
+
+  test('boolean false question returns 400', async () => {
+    const { status } = await apiPost('/api/polls', { question: false, options: ['A', 'B'] });
+    assert.equal(status, 400);
+  });
+
+  test('question with only newlines and tabs (trimmed to empty) returns 400', async () => {
+    const { status } = await apiPost('/api/polls', { question: '\n\t\n', options: ['A', 'B'] });
+    assert.equal(status, 400);
+  });
+
+  test('options array containing numeric zero returns 400', async () => {
+    const { status } = await apiPost('/api/polls', { question: 'Zero opt?', options: ['A', 0] });
+    assert.equal(status, 400);
+  });
+
+  test('very large out-of-range optionIndex (1000000) returns 400', async () => {
+    const poll = await createPoll('Large index?', ['A', 'B']);
+    const { status } = await apiPost(`/api/polls/${poll.id}/vote`, { optionIndex: 1000000 });
+    assert.equal(status, 400);
+  });
+
+  test('optionIndex exactly equal to options.length returns 400 (exclusive upper bound)', async () => {
+    const poll = await createPoll('Off-by-one?', ['A', 'B']);
+    const { status } = await apiPost(`/api/polls/${poll.id}/vote`, { optionIndex: 2 });
+    assert.equal(status, 400,
+      'optionIndex == options.length (2) should be 400 since valid range is 0..1');
+  });
+
+  test('duplicate option texts are both stored (no dedup constraint)', async () => {
+    const { status, body } = await apiPost('/api/polls', {
+      question: 'Duplicates ok?',
+      options: ['Same', 'Same'],
+    });
+    assert.equal(status, 201);
+    assert.equal(body.options.length, 2, 'Both duplicate options should be stored');
+    assert.equal(body.options[0].text, body.options[1].text, 'Duplicate option texts should be equal');
+  });
+
+  test('single-character question is accepted (201)', async () => {
+    const { status, body } = await apiPost('/api/polls', {
+      question: '?',
+      options: ['Y', 'N'],
+    });
+    assert.equal(status, 201);
+    assert.equal(body.question, '?', 'Single-character question should be stored verbatim');
+  });
+});

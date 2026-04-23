@@ -5,86 +5,98 @@
   "repository": "mananb77/kanban-test-3",
   "status": "completed",
   "date": "2026-04-23",
+  "trigger": "dev-iteration-3 added HEALTHCHECK to Dockerfile; health-check describe block added to api.test.mjs",
   "test_files": [
     {
       "path": "tests/smoke.sh",
       "type": "bash-integration",
-      "action": "enhanced",
-      "sections_before": 23,
-      "sections_after": 27,
-      "assertions_before": 100,
-      "assertions_after": 132,
-      "new_sections": [
-        {
-          "number": 24,
-          "name": "HTTP Method Validation",
-          "tests": 6,
-          "description": "PUT/DELETE/PATCH on API endpoints return 404; GET /api/polls returns SPA fallback; POST /:id without /vote returns 404"
-        },
-        {
-          "number": 25,
-          "name": "Non-object JSON Request Bodies",
-          "tests": 8,
-          "description": "JSON number/string/array bodies for poll creation and voting all return 400 due to destructuring yielding undefined keys"
-        },
-        {
-          "number": 26,
-          "name": "Long Input Strings",
-          "tests": 7,
-          "description": "500-character question and option texts accepted, stored, and retrieved without truncation"
-        },
-        {
-          "number": 27,
-          "name": "Complete Voting Cycle",
-          "tests": 11,
-          "description": "Vote on every option of a 4-option poll exactly once, verify running totals and final state via GET"
-        }
-      ]
+      "action": "unchanged",
+      "sections": 27,
+      "assertions": 195,
+      "note": "Fully built out in prior QA iterations (1–2); sections 1–27 cover all requirements"
     },
     {
       "path": "tests/api.test.mjs",
       "type": "nodejs-integration",
-      "action": "created",
+      "action": "enhanced",
       "framework": "node:test (built-in, Node >= 18)",
       "runner": "node --test tests/api.test.mjs",
       "requires_server": true,
-      "assertions": 108,
-      "test_suites": [
+      "tests_before": 27,
+      "tests_after": 52,
+      "new_tests": 25,
+      "describe_blocks_before": 7,
+      "describe_blocks_after": 12,
+      "new_describe_blocks": [
         {
-          "name": "Concurrent vote handling",
-          "tests": 3,
-          "scenarios": ["10 simultaneous votes on same option", "split concurrent votes", "concurrent poll creation distinctness"]
-        },
-        {
-          "name": "Full workflow integration",
-          "tests": 3,
-          "scenarios": ["end-to-end lifecycle", "multi-voter accumulation", "vote response vs GET consistency"]
-        },
-        {
-          "name": "Response schema validation",
-          "tests": 6,
-          "scenarios": ["exact field count and types", "GET matches POST", "vote schema", "timestamp plausibility", "option ordering", "Content-Type headers"]
-        },
-        {
-          "name": "Data isolation between polls",
+          "name": "Health check endpoint",
           "tests": 2,
-          "scenarios": ["cross-poll vote isolation with 3 polls", "duplicate-question polls get distinct IDs"]
+          "trigger": "Dockerfile HEALTHCHECK added in dev-iteration-3",
+          "scenarios": [
+            "GET /api/polls/healthz returns 404 (server up indicator)",
+            "GET /api/polls/ping returns 404 (path-agnostic)"
+          ]
         },
         {
-          "name": "Input validation",
+          "name": "HTTP method validation",
+          "tests": 5,
+          "mirrors_smoke_sh_section": 24,
+          "scenarios": [
+            "PUT /api/polls → 404",
+            "DELETE /api/polls/:id → 404",
+            "PATCH /api/polls/:id/vote → 404",
+            "POST /api/polls/:id (no /vote) → 404",
+            "GET /api/polls (no ID) → 200 SPA fallback with React root"
+          ]
+        },
+        {
+          "name": "Non-object JSON request bodies",
           "tests": 6,
-          "scenarios": ["whitespace variants", "invalid option counts", "8 invalid optionIndex types/values", "trimming", "extra fields", "unicode/emoji", "HTML entities"]
+          "mirrors_smoke_sh_section": 25,
+          "scenarios": [
+            "POST /api/polls with number body → 400",
+            "POST /api/polls with string body → 400",
+            "POST /api/polls with array body → 400",
+            "POST /api/polls/:id/vote with number body → 400",
+            "POST /api/polls/:id/vote with string body → 400",
+            "POST /api/polls/:id/vote with array body → 400"
+          ]
         },
         {
-          "name": "Not found handling",
-          "tests": 3,
-          "scenarios": ["GET 404", "vote 404", "non-UUID IDs"]
+          "name": "Long input strings",
+          "tests": 4,
+          "mirrors_smoke_sh_section": 26,
+          "scenarios": [
+            "500-char question → 201, full length stored",
+            "500-char option texts → 201, full length preserved",
+            "GET round-trip preserves 500-char question exactly",
+            "Voting on poll with long question → 200, vote registered"
+          ]
         },
         {
-          "name": "Vote count accumulation",
-          "tests": 3,
-          "scenarios": ["high-count sequential votes (20+10=30)", "GET idempotency (3 reads after 1 vote)", "full cycle all options at exactly 1 vote"]
+          "name": "Additional input edge cases",
+          "tests": 8,
+          "mirrors_smoke_sh_sections": [14, 18],
+          "scenarios": [
+            "null question → 400",
+            "boolean false question → 400",
+            "question '\\n\\t\\n' → 400 (escape-seq whitespace trims to empty)",
+            "options ['A', 0] → 400 (numeric zero is falsy)",
+            "optionIndex 1000000 → 400",
+            "optionIndex == options.length (off-by-one) → 400",
+            "duplicate option texts → 201, both stored",
+            "single-char question '?' → 201"
+          ]
         }
+      ],
+      "baseline_describe_blocks": [
+        { "name": "Concurrent vote handling", "tests": 3 },
+        { "name": "Full workflow integration", "tests": 3 },
+        { "name": "Response schema validation", "tests": 6 },
+        { "name": "Data isolation between polls", "tests": 2 },
+        { "name": "Input validation", "tests": 7 },
+        { "name": "Not found handling", "tests": 3 },
+        { "name": "Vote count accumulation", "tests": 3 }
       ]
     }
   ],
@@ -96,24 +108,33 @@
     },
     "validation": {
       "question_required": true,
+      "question_null_rejected": true,
+      "question_boolean_rejected": true,
       "question_whitespace_trim": true,
       "options_min_2": true,
       "options_max_6": true,
       "options_non_empty": true,
+      "options_numeric_zero_rejected": true,
       "optionIndex_integer": true,
       "optionIndex_non_negative": true,
-      "optionIndex_in_range": true
+      "optionIndex_in_range": true,
+      "optionIndex_off_by_one": true,
+      "optionIndex_very_large": true
     },
     "error_handling": {
       "400_validation_errors": true,
       "404_not_found": true,
-      "json_response_on_errors": true
+      "json_response_on_errors": true,
+      "non_object_json_bodies": true,
+      "wrong_http_methods": true
     },
     "data_integrity": {
       "vote_accumulation": true,
       "poll_isolation": true,
       "response_consistency": true,
-      "get_idempotency": true
+      "get_idempotency": true,
+      "long_inputs_preserved": true,
+      "duplicate_options_stored": true
     },
     "concurrent_operations": {
       "concurrent_votes_same_option": true,
@@ -121,19 +142,21 @@
       "concurrent_poll_creation": true
     },
     "edge_cases": {
-      "long_inputs": true,
+      "long_inputs_500_chars": true,
       "unicode_emoji": true,
       "html_entities": true,
-      "non_object_json_bodies": true,
-      "wrong_http_methods": true,
-      "duplicate_questions": true,
-      "full_voting_cycle": true
+      "single_char_question": true,
+      "duplicate_option_texts": true,
+      "health_check_dockerfile": true
     },
     "frontend_integration": {
       "spa_fallback": true,
       "react_root_element": true
     }
   },
-  "total_test_assertions": 240,
-  "new_test_assertions": 140
+  "total_test_count": {
+    "api_test_mjs": 52,
+    "smoke_sh_assertions": 195,
+    "net_new_this_iteration": 25
+  }
 }
